@@ -725,6 +725,33 @@ def _score_user_param(pid, value, rr):
     return score, missing, []
 
 
+def _score_nuance_presence(style_code, user_keywords):
+    """Nuances são presença/ausência e refinam o matching; não medem intensidade."""
+    if not user_keywords or profile_df.empty:
+        return None, 0, 0
+    prof = _profile_rows_for_style(style_code)
+    if prof.empty:
+        return None, 0, 0
+
+    positive = prohibited = 0
+    for u in user_keywords:
+        matches = []
+        for _, row in prof.iterrows():
+            if _profile_term_matches_user(row, [u]):
+                matches.append(row)
+        if not matches:
+            continue
+        if any(str(r.get("Status", "")).lower() == "prohibited" for r in matches):
+            prohibited += 1
+        else:
+            positive += 1
+
+    considered=positive+prohibited
+    if not considered:
+        return None, positive, prohibited
+    return max(0.0,(positive-prohibited)/considered), positive, prohibited
+
+
 def calculate_matching():
     user = build_user_vector()
     refs = _aggregate_refs()
@@ -732,8 +759,12 @@ def calculate_matching():
     tech = st.session_state.get("technical", {})
     tech_map = {"OG":"OG", "FG":"FG", "IBU":"IBU", "SRM":"SRM", "ABV":"ABV"}
     # Eixos principais têm peso maior; nuances refinam o resultado.
+    # Pesos do algoritmo BeerSense: sliders/intensidades dominam o matching.
     weights = {f"P{i:03d}": 1.0 for i in range(1, 17)}
     weights.update({f"P{i:03d}": 0.65 for i in range(17, 59)})
+    weights["P001"] = 3.0   # Aroma de lúpulo
+    weights["P007"] = 2.5   # Sabor de lúpulo
+    weights["P010"] = 2.0   # Amargor
 
     for _, sty in styles.iterrows():
         code, name = sty["Código"], sty["Estilo"]
@@ -755,7 +786,14 @@ def calculate_matching():
             if not explicit_bad.empty and val >= 2:
                 unexpected.append((pid, val))
 
+        # Nuances refinam o resultado, mas têm peso muito menor que os sliders.
+        user_keywords = _user_keywords()
+        nuance_score, nuance_positive, nuance_prohibited = _score_nuance_presence(code, user_keywords)
+        if nuance_score is not None:
+            contributions.append((nuance_score, 0.25))
+
         # Dados técnicos — somente campos realmente preenchidos.
+
         tech_scores = []
         for field, col in tech_map.items():
             val = tech.get(field)
@@ -818,7 +856,7 @@ if step == "Aroma":
 
     st.divider()
     st.markdown("### Identificar nuances")
-    st.caption("Selecione apenas as características percebidas e depois indique a intensidade.")
+    st.caption("Selecione apenas as características percebidas. A intensidade é definida nos parâmetros principais.")
 
     if aroma_ui.empty:
         st.warning("A aba Vocabulario_Aroma_UI não foi encontrada.")
@@ -849,12 +887,11 @@ if step == "Aroma":
                 )
                 st.session_state.aroma_selected[group] = selected
 
+                # Nuances = presença/ausência. A intensidade é medida no slider principal.
                 for label in selected:
                     pid = option_to_id[label]
-                    value = st.session_state.aroma_values.get(pid, 0)
-                    value = st.slider(label, 0, 10, int(value), 1, key=f"aroma_n_{pid}")
-                    st.session_state.aroma_values[pid] = value
-                    st.caption(f"{value}/10 — {label_intensity(value)}")
+                    st.session_state.aroma_values[pid] = 1
+                    st.caption("✓ Presente")
 
 # -----------------------------
 # APARÊNCIA
@@ -990,12 +1027,11 @@ elif step == "Aparência":
                     key=f"appearance_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
                 )
                 st.session_state.appearance_selected[group] = selected
+                # Nuances são presença/ausência. A intensidade fica nos parâmetros principais.
                 for label in selected:
                     aid = id_map[label]
-                    value = st.session_state.appearance_values.get(aid, 0)
-                    value = st.slider(label, 0, 10, int(value), 1, key=f"appearance_n_{aid}")
-                    st.session_state.appearance_values[aid] = value
-                    st.caption(f"{value}/10 — {label_intensity(value, True)}")
+                    st.session_state.appearance_values[aid] = 1
+                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo da Aparência")
@@ -1115,15 +1151,11 @@ elif step == "Sabor":
                 )
                 st.session_state.flavor_selected[group] = selected
 
+                # Nuances = presença/ausência. A intensidade é medida no slider principal.
                 for label in selected:
                     sid = id_map[label]
-                    value = st.session_state.flavor_values.get(sid, 0)
-                    value = st.slider(
-                        label, 0, 10, int(value), 1,
-                        key=f"flavor_n_{sid}"
-                    )
-                    st.session_state.flavor_values[sid] = value
-                    st.caption(f"{value}/10 — {label_intensity(value)}")
+                    st.session_state.flavor_values[sid] = 1
+                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo do Sabor")
@@ -1230,18 +1262,11 @@ elif step == "Sensação de boca":
                 )
                 st.session_state.mouth_selected[group] = selected
 
+                # Nuances = presença/ausência. A intensidade é medida no parâmetro principal.
                 for label in selected:
                     mid = id_map[label]
-                    value = st.session_state.mouth_values.get(mid, 0)
-                    value = st.slider(
-                        label,
-                        0, 10,
-                        int(value),
-                        1,
-                        key=f"mouth_n_{mid}",
-                    )
-                    st.session_state.mouth_values[mid] = value
-                    st.caption(f"{value}/10 — {label_intensity(value, True)}")
+                    st.session_state.mouth_values[mid] = 1
+                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo da Sensação de Boca")
