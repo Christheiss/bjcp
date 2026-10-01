@@ -499,7 +499,7 @@ with c1:
 with c2:
     st.metric("Estilos", len(styles))
 
-steps = ["Aroma", "Aparência", "Sabor", "Sensação de boca"]
+steps = ["Aroma", "Aparência", "Sabor", "Sensação de boca", "Dados técnicos"]
 step = st.radio(
     "Etapa da avaliação",
     steps,
@@ -509,7 +509,7 @@ step = st.radio(
 )
 st.session_state.step = step
 
-step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3, "Sensação de boca": 4}[step]
+step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3, "Sensação de boca": 4, "Dados técnicos": 5}[step]
 st.progress(step_num / 5, text=f"Etapa {step_num} de 5 — {step}")
 
 # -----------------------------
@@ -964,6 +964,37 @@ elif step == "Sensação de boca":
     c1.metric("Corpo", f"{st.session_state.mouth_main['Corpo']}/10")
     c2.metric("Carbonatação", f"{st.session_state.mouth_main['Carbonatação']}/10")
     c3.metric("Adstringência", f"{st.session_state.mouth_main['Adstringência']}/10")
+
+# -----------------------------
+# DADOS TÉCNICOS
+# -----------------------------
+elif step == "Dados técnicos":
+    st.header("DADOS TÉCNICOS")
+    st.caption("Todos os campos são opcionais. Preencha apenas os dados disponíveis da cerveja.")
+
+    if "technical" not in st.session_state:
+        st.session_state.technical = {"OG": None, "FG": None, "ABV": None, "IBU": None, "SRM": None, "pH": None}
+
+    c1, c2 = st.columns(2)
+    with c1:
+        og = st.number_input("OG — Original Gravity", min_value=1.000, max_value=1.300, value=1.000, step=0.001, format="%.3f", key="tech_og")
+        fg = st.number_input("FG — Final Gravity", min_value=0.990, max_value=1.100, value=1.000, step=0.001, format="%.3f", key="tech_fg")
+        ibu = st.number_input("IBU — Amargor", min_value=0.0, max_value=200.0, value=0.0, step=1.0, key="tech_ibu")
+    with c2:
+        abv = st.number_input("ABV — Teor alcoólico (%)", min_value=0.0, max_value=30.0, value=0.0, step=0.1, key="tech_abv")
+        srm = st.number_input("SRM — Cor", min_value=0.0, max_value=50.0, value=0.0, step=0.5, key="tech_srm")
+        ph = st.number_input("pH", min_value=0.0, max_value=14.0, value=0.0, step=0.1, key="tech_ph")
+
+    st.session_state.technical = {
+        "OG": og if og != 1.000 else None, "FG": fg if fg != 1.000 else None,
+        "ABV": abv if abv != 0 else None, "IBU": ibu if ibu != 0 else None,
+        "SRM": srm if srm != 0 else None, "pH": ph if ph != 0 else None,
+    }
+
+    if og > 1.000 and fg > 0 and fg < og:
+        abv_est = (og - fg) * 131.25
+        st.info(f"ABV estimado a partir de OG e FG: **{abv_est:.1f}%**")
+
 
 st.caption(
     f"Banco: {len(styles)} estilos · {len(references)} referências · "
