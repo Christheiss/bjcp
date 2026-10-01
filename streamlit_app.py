@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import re
 from pathlib import Path
@@ -237,6 +238,174 @@ def beer_glass_svg(srm, foam_size, foam_color_name):
     </div>
     """
 
+
+# -----------------------------
+# Visualização do copo
+# -----------------------------
+def beer_color_from_srm(srm):
+    """Cor gráfica aproximada a partir do SRM."""
+    points = [
+        (0, "#F7F0B5"),
+        (2, "#F4E6A0"),
+        (3.5, "#F0D36A"),
+        (5.5, "#D9A441"),
+        (7.5, "#B87333"),
+        (12, "#9A5A2A"),
+        (15.5, "#8A4B24"),
+        (17.5, "#70452A"),
+        (20.5, "#5A3825"),
+        (26, "#3F2619"),
+        (32.5, "#2A1A13"),
+        (40, "#17110E"),
+        (50, "#090706"),
+    ]
+    value = max(0.0, min(50.0, float(srm or 0)))
+
+    if value <= points[0][0]:
+        return points[0][1]
+
+    def rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    for (x1, c1), (x2, c2) in zip(points, points[1:]):
+        if x1 <= value <= x2:
+            t = (value - x1) / (x2 - x1)
+            a, b = rgb(c1), rgb(c2)
+            return "#{:02X}{:02X}{:02X}".format(
+                *[round(a[i] + (b[i] - a[i]) * t) for i in range(3)]
+            )
+
+    return points[-1][1]
+
+
+def color_name_from_srm_ui(srm):
+    value = float(srm or 0)
+    if value <= 0:
+        return "Sem cor informada"
+
+    ranges = [
+        ("Palha", 2, 3),
+        ("Amarelo", 3, 4),
+        ("Dourado", 5, 6),
+        ("Âmbar", 6, 9),
+        ("Âmbar profundo / cobre claro", 10, 14),
+        ("Cobre", 14, 17),
+        ("Cobre profundo / marrom claro", 17, 18),
+        ("Marrom", 19, 22),
+        ("Marrom escuro", 22, 30),
+        ("Muito marrom escuro", 30, 35),
+        ("Preto", 30, 40),
+        ("Preto opaco", 40, 50),
+    ]
+    candidates = [
+        (name, low, high, abs(value - ((low + high) / 2)))
+        for name, low, high in ranges
+        if low <= value <= high
+    ]
+    if candidates:
+        return min(candidates, key=lambda x: x[3])[0]
+    return "Mais claro que palha" if value < 2 else "Mais escuro que preto opaco"
+
+
+def foam_color_hex(label):
+    mapping = {
+        "espuma branca": "#F8F8F2",
+        "espuma branco-quebrada": "#F1EBD7",
+        "espuma bege clara": "#E8D7B2",
+        "bege claro": "#E2CFA5",
+        "espuma bege pálida": "#D9C39B",
+        "bege pálido": "#D8C39C",
+        "bege": "#CDB58A",
+        "bege / castanho claro": "#BFA77A",
+    }
+    return mapping.get(str(label).strip().lower(), "#F1EBD7")
+
+
+def render_beer_glass(srm, foam_size, foam_color):
+    """Desenha um copo em SVG; os valores são recalculados a cada interação."""
+    liquid = beer_color_from_srm(srm)
+    foam = foam_color_hex(foam_color)
+
+    # Tamanho visual do colarinho: 0 = mínimo, 10 = máximo.
+    head_h = 12 + (float(foam_size) / 10.0) * 92
+    liquid_top = 360 - head_h
+    # Copo trapezoidal simplificado.
+    glass_left = 75
+    glass_right = 245
+    glass_top = 35
+    glass_bottom = 365
+
+    # Retângulo do líquido dentro do corpo do copo.
+    liquid_height = max(0, glass_bottom - liquid_top)
+
+    # Escurecimento/reflexo para dar sensação de volume.
+    html = f"""
+    <div style="width:100%;display:flex;justify-content:center;margin:4px 0 18px;">
+      <div style="text-align:center;">
+        <svg width="320" height="430" viewBox="0 0 320 430"
+             xmlns="http://www.w3.org/2000/svg"
+             style="max-width:100%;height:auto;">
+          <defs>
+            <clipPath id="glassClip">
+              <path d="M75 35 L245 35 L225 365 L95 365 Z"/>
+            </clipPath>
+            <linearGradient id="beerGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="{liquid}" stop-opacity="0.78"/>
+              <stop offset="50%" stop-color="{liquid}" stop-opacity="1"/>
+              <stop offset="100%" stop-color="{liquid}" stop-opacity="0.82"/>
+            </linearGradient>
+            <linearGradient id="foamGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="{foam}" stop-opacity="0.98"/>
+              <stop offset="100%" stop-color="{foam}" stop-opacity="0.82"/>
+            </linearGradient>
+            <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="8" stdDeviation="8" flood-opacity="0.28"/>
+            </filter>
+          </defs>
+
+          <!-- sombra -->
+          <ellipse cx="160" cy="383" rx="92" ry="12" fill="#000" opacity="0.18"/>
+
+          <!-- líquido + espuma recortados no formato do copo -->
+          <g clip-path="url(#glassClip)">
+            <rect x="65" y="{liquid_top}" width="190" height="{liquid_height}"
+                  fill="url(#beerGradient)"/>
+
+            <!-- linha de interface cerveja/espuma -->
+            <rect x="65" y="{liquid_top}" width="190" height="{head_h}"
+                  fill="url(#foamGradient)"/>
+
+            <!-- bolhas discretas na espuma -->
+            <circle cx="105" cy="{liquid_top + head_h*0.42}" r="3" fill="#fff" opacity="0.30"/>
+            <circle cx="132" cy="{liquid_top + head_h*0.66}" r="2" fill="#fff" opacity="0.25"/>
+            <circle cx="178" cy="{liquid_top + head_h*0.35}" r="3" fill="#fff" opacity="0.25"/>
+            <circle cx="207" cy="{liquid_top + head_h*0.62}" r="2" fill="#fff" opacity="0.22"/>
+
+            <!-- reflexo do vidro -->
+            <path d="M100 55 L82 330" stroke="#fff" stroke-width="10"
+                  stroke-linecap="round" opacity="0.13"/>
+          </g>
+
+          <!-- contorno do copo -->
+          <path d="M75 35 L245 35 L225 365 L95 365 Z"
+                fill="none" stroke="#D9DEE7" stroke-width="3"
+                opacity="0.82" filter="url(#shadow)"/>
+          <line x1="72" y1="35" x2="248" y2="35"
+                stroke="#E9EDF3" stroke-width="4" opacity="0.85"/>
+          <line x1="95" y1="365" x2="225" y2="365"
+                stroke="#E9EDF3" stroke-width="3" opacity="0.75"/>
+
+          <!-- informações -->
+          <text x="160" y="405" text-anchor="middle"
+                font-family="Arial, sans-serif" font-size="16"
+                fill="#E8EAF0">{srm:g} SRM · {color_name_from_srm_ui(srm)}</text>
+        </svg>
+      </div>
+    </div>
+    """
+    components.html(html, height=445, scrolling=False)
+
 # -----------------------------
 # Estado
 # -----------------------------
@@ -368,8 +537,8 @@ else:
     )
     st.header("APARÊNCIA")
 
-    # Cor + copo visual
-    st.markdown("### 🎨 Aparência do copo")
+    # Copo visual
+    st.markdown("### 🍺 Aparência do copo")
 
     srm = st.number_input(
         "SRM",
@@ -381,7 +550,53 @@ else:
     )
     st.session_state.appearance_srm = srm if srm > 0 else None
 
+    # Cor da espuma é categórica; vem diretamente do vocabulário da planilha.
+    foam_color_df = appearance_ui[
+        (appearance_ui["Grupo_UI"] == "🫧 Espuma — cor") &
+        (appearance_ui["Controle_UI"] == "espuma_cor")
+    ]
+    foam_options = (
+        foam_color_df["Rótulo_PT"].drop_duplicates().astype(str).tolist()
+        if not foam_color_df.empty
+        else ["espuma branca", "espuma branco-quebrada", "bege claro", "bege", "bege pálido"]
+    )
+
+    foam_selected = st.selectbox(
+        "Cor da espuma",
+        ["Espuma branca"] + foam_options,
+        key="appearance_foam_color_select",
+    )
+    foam_selected = "" if foam_selected == "Espuma branca" else foam_selected
+
+    head_size = int(st.session_state.appearance_main["Formação da espuma"])
+    render_beer_glass(srm, head_size, foam_selected or "espuma branca")
+
+    st.caption(
+        f"**{srm:g} SRM — {color_name_from_srm_ui(srm)}** · "
+        f"Colarinho: **{head_size}/10 — {label_intensity(head_size, True)}**"
+    )
+
     st.divider()
+
+    # Head
+    st.markdown("### 🫧 Espuma")
+    c1, c2 = st.columns(2)
+    with c1:
+        v = st.slider(
+            "Tamanho do colarinho",
+            0, 10, int(st.session_state.appearance_main["Formação da espuma"]), 1,
+            key="appearance_head_size"
+        )
+        st.session_state.appearance_main["Formação da espuma"] = v
+        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+    with c2:
+        v = st.slider(
+            "Retenção da espuma",
+            0, 10, int(st.session_state.appearance_main["Retenção da espuma"]), 1,
+            key="appearance_head_retention"
+        )
+        st.session_state.appearance_main["Retenção da espuma"] = v
+        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
 
     # Head
     st.markdown("### 🫧 Espuma")
@@ -402,19 +617,6 @@ else:
         )
         st.session_state.appearance_main["Retenção da espuma"] = v
         st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
-
-    foam_color_df = appearance_ui[
-        (appearance_ui["Grupo_UI"] == "🫧 Espuma — cor") &
-        (appearance_ui["Controle_UI"] == "espuma_cor")
-    ]
-    if not foam_color_df.empty:
-        st.multiselect(
-            "Cor da espuma",
-            foam_color_df["Rótulo_PT"].drop_duplicates().tolist(),
-            key="appearance_foam_color"
-        )
-
-    st.divider()
 
     # Legs
     st.markdown("### 💧 Pernas / viscosidade visual")
