@@ -1,505 +1,283 @@
 import streamlit as st
 import pandas as pd
+import re
 from pathlib import Path
 
-
-# ============================================================
-# BEERSENSE
-# Avaliação Sensorial BJCP
-# Versão: Aroma
-# ============================================================
-
 st.set_page_config(
-    page_title="BeerSense",
+    page_title="BeerSense — BJCP",
     page_icon="🍺",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
+DB_PATH = Path("data/bjcp_database.xlsx")
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
+# -----------------------------
+# Dados
+# -----------------------------
+@st.cache_data
+def load_database(path):
+    if not path.exists():
+        return None, f"Banco não encontrado em: {path}"
 
-ARQUIVO_BJCP = Path("data/bjcp_database.xlsx")
+    try:
+        xls = pd.ExcelFile(path, engine="openpyxl")
+        sheets = {
+            name: pd.read_excel(path, sheet_name=name, engine="openpyxl")
+            for name in xls.sheet_names
+        }
+        return sheets, None
+    except Exception as e:
+        return None, str(e)
 
 
-# ============================================================
-# TRADUÇÕES PARA A INTERFACE
-#
-# Os nomes internos continuam iguais aos da nossa base.
-# Aqui apenas definimos como eles aparecem para o usuário.
-# ============================================================
+db, db_error = load_database(DB_PATH)
 
-TRADUCOES = {
-    "Intensidade de lúpulo": "Intensidade de lúpulo",
-    "Intensidade de malte": "Intensidade de malte",
-    "Intensidade de fermentação": "Intensidade de fermentação",
+if db_error:
+    st.error(f"Erro ao carregar o banco: {db_error}")
+    st.stop()
 
-    "malt": "Maltado",
-    "bread/biscuit/toast": "Pão / Biscoito / Torrado",
-    "fruit": "Frutado",
-    "esters": "Ésteres",
-    "alcohol": "Álcool",
-    "smoke": "Defumado",
-    "caramel/toffee": "Caramelo / Toffee",
-    "grain/corn": "Cereal / Milho",
-    "hop aroma": "Aroma de lúpulo",
-    "phenolic/spice": "Fenólico / Especiado",
-    "roast/chocolate/coffee": "Torrado / Chocolate / Café",
-    "sour/acid": "Ácido / Sour",
-    "sulfur/DMS": "Enxofre / DMS",
-    "wood/oak": "Madeira / Carvalho",
+styles = db.get("Estilos", pd.DataFrame())
+categories = db.get("Categorias_Parametros", pd.DataFrame())
+references = db.get("Valores_Referencia_BJCP", pd.DataFrame())
+aroma_ui = db.get("Vocabulario_Aroma_UI", pd.DataFrame())
+intensity_df = db.get("Escala_Intensidade_BJCP", pd.DataFrame())
+
+# -----------------------------
+# Escala operacional
+# -----------------------------
+DEFAULT_INTENSITY = {
+    0: "Ausente",
+    1: "Muito baixa",
+    2: "Muito baixa",
+    3: "Baixa",
+    4: "Baixa–moderada",
+    5: "Moderada",
+    6: "Moderada–alta",
+    7: "Moderada–alta",
+    8: "Alta",
+    9: "Muito alta",
+    10: "Intensa",
 }
 
+def intensity_label(value):
+    try:
+        value = int(value)
+    except Exception:
+        return ""
+    if not intensity_df.empty and "Valor_0_10" in intensity_df.columns:
+        row = intensity_df[intensity_df["Valor_0_10"] == value]
+        if not row.empty:
+            return str(row.iloc[0]["Rótulo_BJCP_UI"])
+    return DEFAULT_INTENSITY.get(value, "")
 
-# ============================================================
-# ESTILO VISUAL
-# ============================================================
+def intensity_slider(label, key, value=0):
+    value = st.slider(
+        label,
+        min_value=0,
+        max_value=10,
+        value=int(value),
+        step=1,
+        key=key,
+        help="0–10 é uma normalização operacional do aplicativo. O rótulo abaixo traduz a intensidade para linguagem próxima à usada nas descrições BJCP."
+    )
+    st.caption(f"**{value}/10 — {intensity_label(value)}**")
+    return value
 
-st.markdown(
-    """
-    <style>
-
-    .block-container {
-        max-width: 760px;
-        padding-top: 2rem;
-        padding-bottom: 4rem;
+# -----------------------------
+# Estado
+# -----------------------------
+if "aroma_main" not in st.session_state:
+    st.session_state.aroma_main = {
+        "Lúpulo": 0,
+        "Malte": 0,
+        "Fermentação": 0,
     }
 
-    .beer-title {
-        font-size: 2.5rem;
-        font-weight: 800;
-        margin-bottom: 0;
-    }
+if "aroma_selected" not in st.session_state:
+    st.session_state.aroma_selected = {}
 
-    .beer-subtitle {
-        color: #888;
-        font-size: 1rem;
-        margin-top: -5px;
-        margin-bottom: 20px;
-    }
+if "aroma_values" not in st.session_state:
+    st.session_state.aroma_values = {}
 
-    .section-title {
-        font-size: 1.8rem;
-        font-weight: 800;
-        margin-top: 10px;
-    }
+# -----------------------------
+# Cabeçalho
+# -----------------------------
+st.title("🍺 BeerSense")
+st.subheader("Avaliação Sensorial baseada no BJCP")
 
-    .section-description {
-        color: #888;
-        margin-bottom: 20px;
-    }
+col1, col2 = st.columns(2)
+with col1:
+    st.success("✓ Base BJCP conectada")
+with col2:
+    st.metric("Estilos", len(styles))
 
-    .group-title {
-        font-size: 1.25rem;
-        font-weight: 750;
-        margin-top: 15px;
-        margin-bottom: 5px;
-    }
+st.progress(0.20, text="Etapa 1 de 5 — Aroma")
 
-    div.stButton > button {
-        width: 100%;
-        border-radius: 10px;
-        min-height: 3rem;
-        font-weight: 700;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
+st.info(
+    "A escala numérica de 0–10 é **operacional do aplicativo**. "
+    "Ela não é uma escala oficial do BJCP. Os rótulos abaixo servem para aproximar "
+    "a leitura da linguagem descritiva usada nas diretrizes."
 )
 
+# -----------------------------
+# Aroma — intensidades principais
+# -----------------------------
+st.header("AROMA")
 
-# ============================================================
-# CARREGAR BANCO
-# ============================================================
+st.markdown("### Intensidade geral")
 
-@st.cache_data
-def carregar_banco():
+main_cols = st.columns(3)
 
-    estilos = pd.read_excel(
-        ARQUIVO_BJCP,
-        sheet_name="Estilos"
-    )
+main_defs = [
+    ("Lúpulo", "aroma_main_hop"),
+    ("Malte", "aroma_main_malt"),
+    ("Fermentação", "aroma_main_fermentation"),
+]
 
-    parametros = pd.read_excel(
-        ARQUIVO_BJCP,
-        sheet_name="Categorias_Parametros"
-    )
-
-    referencias = pd.read_excel(
-        ARQUIVO_BJCP,
-        sheet_name="Valores_Referencia_BJCP"
-    )
-
-    return estilos, parametros, referencias
-
-
-# ============================================================
-# VERIFICAÇÃO DO ARQUIVO
-# ============================================================
-
-if not ARQUIVO_BJCP.exists():
-
-    st.error(
-        "❌ Não encontrei a base BJCP."
-    )
-
-    st.code(
-        str(ARQUIVO_BJCP)
-    )
-
-    st.stop()
-
-
-# ============================================================
-# CARREGAR DADOS
-# ============================================================
-
-try:
-
-    estilos, parametros, referencias = carregar_banco()
-
-except Exception as erro:
-
-    st.error(
-        "❌ Erro ao carregar a base BJCP."
-    )
-
-    st.exception(erro)
-
-    st.stop()
-
-
-# ============================================================
-# SEPARAR PARÂMETROS DE AROMA
-# ============================================================
-
-parametros_aroma = parametros[
-    parametros["Dimensão"].astype(str).str.lower() == "aroma"
-].copy()
-
-
-parametros_principais = parametros_aroma[
-    parametros_aroma["Tipo"].astype(str).str.lower() == "intensidade"
-].copy()
-
-
-parametros_nuances = parametros_aroma[
-    parametros_aroma["Tipo"].astype(str).str.lower() == "nuance"
-].copy()
-
-
-# ============================================================
-# CABEÇALHO
-# ============================================================
-
-st.markdown(
-    '<div class="beer-title">🍺 BeerSense</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="beer-subtitle">'
-    'Avaliação Sensorial baseada no BJCP'
-    '</div>',
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# STATUS DA BASE
-# ============================================================
-
-with st.expander("✓ Base BJCP conectada", expanded=False):
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "Estilos",
-            len(estilos)
+for col, (label, key) in zip(main_cols, main_defs):
+    with col:
+        current = st.session_state.aroma_main.get(label, 0)
+        new_value = st.slider(
+            label,
+            0, 10, int(current), 1,
+            key=key
         )
-
-    with col2:
-        st.metric(
-            "Parâmetros",
-            len(parametros)
-        )
-
-    with col3:
-        st.metric(
-            "Referências",
-            len(referencias)
-        )
-
+        st.session_state.aroma_main[label] = new_value
+        st.caption(f"**{new_value}/10 — {intensity_label(new_value)}**")
 
 st.divider()
 
-
-# ============================================================
-# TÍTULO DA ETAPA
-# ============================================================
-
-st.progress(0.25)
-
-st.markdown(
-    '<div class="section-title">AROMA</div>',
-    unsafe_allow_html=True
+# -----------------------------
+# Nuances
+# -----------------------------
+st.markdown("### Identificar nuances")
+st.caption(
+    "Selecione apenas as características que você percebe. "
+    "Depois, atribua a intensidade individual de cada uma."
 )
 
-st.markdown(
-    '<div class="section-description">'
-    'Avalie a intensidade geral primeiro. '
-    'Depois, selecione as nuances que você identifica na cerveja.'
-    '</div>',
-    unsafe_allow_html=True
-)
-
-
-# ============================================================
-# ARMAZENAR RESULTADOS
-# ============================================================
-
-aroma_resultado = {}
-
-
-# ============================================================
-# PARÂMETROS PRINCIPAIS
-# ============================================================
-
-st.markdown(
-    '<div class="group-title">🌿 Lúpulo</div>',
-    unsafe_allow_html=True
-)
-
-p = parametros_principais[
-    parametros_principais["Parametro_ID"] == "P001"
-]
-
-if not p.empty:
-
-    nome = p.iloc[0]["Parâmetro"]
-
-    valor_lupulo = st.slider(
-        "Intensidade geral",
-        min_value=0,
-        max_value=10,
-        value=0,
-        step=1,
-        key="aroma_lupulo"
+if aroma_ui.empty:
+    st.warning(
+        "A aba Vocabulario_Aroma_UI não foi encontrada. "
+        "Atualize o banco de dados para a versão que contém o vocabulário completo."
     )
-
-    aroma_resultado["P001"] = {
-        "parametro": nome,
-        "valor": valor_lupulo
-    }
-
-
-st.markdown(
-    '<div class="group-title">🌾 Malte</div>',
-    unsafe_allow_html=True
-)
-
-p = parametros_principais[
-    parametros_principais["Parametro_ID"] == "P002"
-]
-
-if not p.empty:
-
-    nome = p.iloc[0]["Parâmetro"]
-
-    valor_malte = st.slider(
-        "Intensidade geral",
-        min_value=0,
-        max_value=10,
-        value=0,
-        step=1,
-        key="aroma_malte"
-    )
-
-    aroma_resultado["P002"] = {
-        "parametro": nome,
-        "valor": valor_malte
-    }
-
-
-st.markdown(
-    '<div class="group-title">🍌 Fermentação</div>',
-    unsafe_allow_html=True
-)
-
-p = parametros_principais[
-    parametros_principais["Parametro_ID"] == "P003"
-]
-
-if not p.empty:
-
-    nome = p.iloc[0]["Parâmetro"]
-
-    valor_fermentacao = st.slider(
-        "Intensidade geral",
-        min_value=0,
-        max_value=10,
-        value=0,
-        step=1,
-        key="aroma_fermentacao"
-    )
-
-    aroma_resultado["P003"] = {
-        "parametro": nome,
-        "valor": valor_fermentacao
-    }
-
-
-# ============================================================
-# NUANCES
-# ============================================================
-
-st.divider()
-
-st.subheader("🔎 Nuances")
-
-
-# Agrupar as nuances pelos grupos existentes no banco
-grupos = parametros_nuances["Grupo"].dropna().unique()
-
-
-for grupo in grupos:
-
-    dados_grupo = parametros_nuances[
-        parametros_nuances["Grupo"] == grupo
+else:
+    group_order = [
+        "🌿 Lúpulo",
+        "🌾 Malte",
+        "🍑 Frutado",
+        "🍺 Fermentação / levedura",
+        "🍋 Acidez / fermentação mista",
+        "🪵 Madeira",
+        "💧 Água / mineral",
+        "Brett / Funky",
+        "⚠️ Defeitos / indesejáveis",
+        "🍯 Percepções",
     ]
 
-    nome_grupo = str(grupo)
+    existing_groups = set(aroma_ui["Grupo_UI"].dropna().astype(str))
+    group_order += sorted(existing_groups - set(group_order))
 
-    if nome_grupo == "Lúpulo":
-        icone = "🌿"
-    elif nome_grupo == "Malte":
-        icone = "🌾"
-    elif nome_grupo == "Fermentação":
-        icone = "🍌"
-    elif nome_grupo == "Outros":
-        icone = "🧪"
-    else:
-        icone = "🔎"
+    for group in group_order:
+        group_df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
+        if group_df.empty:
+            continue
 
-    with st.expander(
-        f"{icone} {nome_grupo}"
-    ):
+        options = group_df["Rótulo_PT"].astype(str).tolist()
+        option_to_id = dict(
+            zip(
+                group_df["Rótulo_PT"].astype(str),
+                group_df["Parametro_ID"].astype(str)
+            )
+        )
 
-        for _, parametro in dados_grupo.iterrows():
+        selected_key = f"selected_{group}"
+        previous = st.session_state.aroma_selected.get(group, [])
 
-            parametro_id = str(
-                parametro["Parametro_ID"]
+        with st.expander(f"{group}  ·  {len(options)} descritores", expanded=False):
+            selected = st.multiselect(
+                "Nuances percebidas",
+                options=options,
+                default=[x for x in previous if x in options],
+                key=selected_key,
+                placeholder="Selecione uma ou mais nuances..."
             )
 
-            nome_original = str(
-                parametro["Parâmetro"]
-            )
+            st.session_state.aroma_selected[group] = selected
 
-            nome_exibicao = TRADUCOES.get(
-                nome_original,
-                nome_original
-            )
+            if selected:
+                st.markdown("**Intensidade das nuances selecionadas**")
 
-            ativo = st.checkbox(
-                nome_exibicao,
-                key=f"ativo_{parametro_id}"
-            )
+                for label in selected:
+                    param_id = option_to_id[label]
+                    safe_id = re.sub(r"[^a-zA-Z0-9_]+", "_", param_id)
 
-            if ativo:
+                    value_key = f"nuance_{safe_id}"
+                    old_value = st.session_state.aroma_values.get(param_id, 0)
 
-                intensidade = st.slider(
-                    f"Intensidade — {nome_exibicao}",
-                    min_value=0,
-                    max_value=10,
-                    value=5,
-                    step=1,
-                    key=f"intensidade_{parametro_id}"
-                )
+                    value = st.slider(
+                        label,
+                        0, 10, int(old_value), 1,
+                        key=value_key
+                    )
+                    st.session_state.aroma_values[param_id] = value
+                    st.caption(f"{value}/10 — {intensity_label(value)}")
 
-                aroma_resultado[parametro_id] = {
-                    "parametro": nome_original,
-                    "nome_exibicao": nome_exibicao,
-                    "valor": intensidade,
-                    "grupo": nome_grupo
-                }
-
-
-# ============================================================
-# RESUMO
-# ============================================================
-
+# -----------------------------
+# Resumo da entrada
+# -----------------------------
 st.divider()
+st.subheader("Resumo do Aroma")
 
-st.subheader("📋 Resumo do Aroma")
+active_nuances = []
+for group, labels in st.session_state.aroma_selected.items():
+    for label in labels:
+        row = aroma_ui[
+            (aroma_ui["Grupo_UI"] == group) &
+            (aroma_ui["Rótulo_PT"] == label)
+        ]
+        if not row.empty:
+            pid = str(row.iloc[0]["Parametro_ID"])
+            active_nuances.append({
+                "Grupo": group,
+                "Nuance": label,
+                "Intensidade": st.session_state.aroma_values.get(pid, 0),
+                "Linguagem": intensity_label(
+                    st.session_state.aroma_values.get(pid, 0)
+                ),
+                "ID": pid,
+            })
 
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    st.metric(
-        "Lúpulo",
-        f"{aroma_resultado.get('P001', {}).get('valor', 0)}/10"
+if active_nuances:
+    summary = pd.DataFrame(active_nuances)
+    st.dataframe(
+        summary[["Grupo", "Nuance", "Intensidade", "Linguagem"]],
+        use_container_width=True,
+        hide_index=True,
     )
+else:
+    st.caption("Nenhuma nuance específica selecionada ainda.")
 
-with col2:
-    st.metric(
-        "Malte",
-        f"{aroma_resultado.get('P002', {}).get('valor', 0)}/10"
-    )
-
-with col3:
-    st.metric(
-        "Fermentação",
-        f"{aroma_resultado.get('P003', {}).get('valor', 0)}/10"
-    )
-
-
-nuances_selecionadas = [
-    item
-    for item in aroma_resultado.keys()
-    if item not in ["P001", "P002", "P003"]
-]
-
-
-st.write(
-    f"**Nuances identificadas:** "
-    f"{len(nuances_selecionadas)}"
-)
-
-
-# ============================================================
-# SALVAR AVALIAÇÃO NA SESSÃO
-# ============================================================
-
-st.divider()
-
-if st.button(
-    "Salvar Aroma e continuar →",
-    type="primary"
-):
-
-    st.session_state["aroma"] = aroma_resultado
-
-    st.session_state["aroma_concluido"] = True
-
-    st.success(
-        "✅ Aroma registrado com sucesso!"
-    )
-
+# -----------------------------
+# Diagnóstico técnico
+# -----------------------------
+with st.expander("ℹ️ Como esta etapa será usada no matching"):
     st.write(
-        "Parâmetros registrados:",
-        len(aroma_resultado)
+        "Cada nuance fica registrada com seu identificador e intensidade. "
+        "Na etapa de matching, o sistema poderá cruzar esses registros com "
+        "as referências específicas de cada estilo."
+    )
+    st.write(
+        "Importante: um descritor como chocolate, torrado, caramelo ou fruta "
+        "não será considerado automaticamente 'bom' ou 'ruim'. "
+        "A condição esperada, opcional ou indesejável deverá ser determinada "
+        "pelo estilo BJCP correspondente."
     )
 
-
-# ============================================================
-# VISUALIZAR DADOS — TEMPORÁRIO
-# ============================================================
-
-with st.expander("🔧 Ver dados registrados"):
-
-    st.json(aroma_resultado)
+st.caption(
+    f"Banco carregado: {len(styles)} estilos · "
+    f"{len(categories)} parâmetros gerais · "
+    f"{len(references)} referências · "
+    f"{len(aroma_ui)} descritores de aroma"
+)
