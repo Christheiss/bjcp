@@ -434,6 +434,15 @@ if "step" not in st.session_state:
 
 if "aroma_main" not in st.session_state:
     st.session_state.aroma_main = {"Lúpulo": 0, "Malte": 0, "Fermentação": 0}
+if "evaluated_main" not in st.session_state:
+    st.session_state.evaluated_main = set()
+
+def mark_main_evaluated(label):
+    st.session_state.evaluated_main.add(label)
+
+def mark_key_evaluated(label):
+    st.session_state.evaluated_main.add(label)
+
 if "aroma_selected" not in st.session_state:
     st.session_state.aroma_selected = {}
 if "aroma_values" not in st.session_state:
@@ -552,99 +561,216 @@ def _canonical_pid_from_ui(dim, row):
         return str(row.get("Parametro_ID", "")) if str(row.get("Parametro_ID", "")).startswith("P") else None
     return None
 
+MAIN_TO_CANONICAL = {
+    "P001": ["P025"],                         # aroma de lúpulo
+    "P002": ["P017", "P018", "P023", "P024", "P027"],  # aroma de malte
+    "P003": ["P019", "P020", "P021", "P026"],           # fermentação/aroma
+    "P004": ["P054"],                         # cor
+    "P005": ["P053"],                         # limpidez
+    "P006": ["P057"],                         # formação/tamanho da espuma
+    "P007": ["P038"],                         # sabor de lúpulo
+    "P008": ["P039", "P033", "P034", "P041"],            # sabor de malte
+    "P009": ["P036", "P037", "P040"],                     # fermentação/sabor
+    "P010": ["P032"],                         # amargor
+    "P011": ["P044"],                         # doçura
+    "P012": ["P035"],                         # secura
+    "P013": ["P048"],                         # corpo
+    "P014": ["P049"],                         # carbonatação
+    "P015": ["P046"],                         # aquecimento alcoólico
+    "P016": ["P047"],                         # adstringência
+}
+
+
 def build_user_vector():
-    v = {
-        "P001": st.session_state.aroma_main.get("Lúpulo",0), "P002": st.session_state.aroma_main.get("Malte",0),
-        "P003": st.session_state.aroma_main.get("Fermentação",0),
-        "P004": st.session_state.appearance_main.get("Limpidez",0), "P005": st.session_state.appearance_main.get("Limpidez",0),
-        "P006": st.session_state.appearance_main.get("Formação da espuma",0),
-        "P007": st.session_state.flavor_main.get("Lúpulo",0), "P008": st.session_state.flavor_main.get("Malte",0),
-        "P009": st.session_state.flavor_main.get("Fermentação",0), "P010": st.session_state.flavor_main.get("Amargor",0),
-        "P011": st.session_state.flavor_main.get("Doçura",0), "P012": st.session_state.flavor_balance.get("Doce ↔ Seco",5),
-        "P013": st.session_state.mouth_main.get("Corpo",0), "P014": st.session_state.mouth_main.get("Carbonatação",0),
-        "P015": st.session_state.mouth_main.get("Aquecimento alcoólico",0), "P016": st.session_state.mouth_main.get("Adstringência",0),
+    """Monta somente os parâmetros que o avaliador realmente preencheu/selecionou."""
+    v = {}
+    ev = st.session_state.get("evaluated_main", set())
+
+    main_labels = {
+        "Aroma — Lúpulo": ("P001", "Lúpulo"),
+        "Aroma — Malte": ("P002", "Malte"),
+        "Aroma — Fermentação": ("P003", "Fermentação"),
+        "Aparência — Limpidez": ("P005", "Limpidez"),
+        "Aparência — Espuma": ("P006", "Formação da espuma"),
+        "Sabor — Lúpulo": ("P007", "Lúpulo"),
+        "Sabor — Malte": ("P008", "Malte"),
+        "Sabor — Fermentação": ("P009", "Fermentação"),
+        "Sabor — Amargor": ("P010", "Amargor"),
+        "Sabor — Doçura": ("P011", "Doçura"),
+        "Sabor — Secura": ("P012", "Doce ↔ Seco"),
+        "Boca — Corpo": ("P013", "Corpo"),
+        "Boca — Carbonatação": ("P014", "Carbonatação"),
+        "Boca — Aquecimento alcoólico": ("P015", "Aquecimento alcoólico"),
+        "Boca — Adstringência": ("P016", "Adstringência"),
     }
-    # Nuances detalhadas -> parâmetros canônicos
+
+    if "Aroma — Lúpulo" in ev: v["P001"] = st.session_state.aroma_main.get("Lúpulo", 0)
+    if "Aroma — Malte" in ev: v["P002"] = st.session_state.aroma_main.get("Malte", 0)
+    if "Aroma — Fermentação" in ev: v["P003"] = st.session_state.aroma_main.get("Fermentação", 0)
+    if "Aparência — Limpidez" in ev: v["P005"] = st.session_state.appearance_main.get("Limpidez", 0)
+    if "Aparência — Espuma" in ev: v["P006"] = st.session_state.appearance_main.get("Formação da espuma", 0)
+    if "Sabor — Lúpulo" in ev: v["P007"] = st.session_state.flavor_main.get("Lúpulo", 0)
+    if "Sabor — Malte" in ev: v["P008"] = st.session_state.flavor_main.get("Malte", 0)
+    if "Sabor — Fermentação" in ev: v["P009"] = st.session_state.flavor_main.get("Fermentação", 0)
+    if "Sabor — Amargor" in ev: v["P010"] = st.session_state.flavor_main.get("Amargor", 0)
+    if "Sabor — Doçura" in ev: v["P011"] = st.session_state.flavor_main.get("Doçura", 0)
+    if "Sabor — Secura" in ev: v["P012"] = st.session_state.flavor_balance.get("Doce ↔ Seco", 5)
+    if "Boca — Corpo" in ev: v["P013"] = st.session_state.mouth_main.get("Corpo", 0)
+    if "Boca — Carbonatação" in ev: v["P014"] = st.session_state.mouth_main.get("Carbonatação", 0)
+    if "Boca — Aquecimento alcoólico" in ev: v["P015"] = st.session_state.mouth_main.get("Aquecimento alcoólico", 0)
+    if "Boca — Adstringência" in ev: v["P016"] = st.session_state.mouth_main.get("Adstringência", 0)
+
+    # SRM medido é um dado técnico independente; entra no matching técnico.
+    # Nuances detalhadas são consideradas somente quando foram selecionadas.
     for label_map, values, sheet, dim in [
         (st.session_state.aroma_selected, st.session_state.aroma_values, aroma_ui, "Aroma"),
         (st.session_state.flavor_selected, st.session_state.flavor_values, flavor_ui, "Sabor"),
         (st.session_state.mouth_selected, st.session_state.mouth_values, mouthfeel_ui, "Mouthfeel"),
         (st.session_state.appearance_selected, st.session_state.appearance_values, appearance_ui, "Aparência"),
     ]:
-        if sheet.empty: continue
-        id_col = {"Aroma":"Parametro_ID","Sabor":"Sabor_ID","Mouthfeel":"Sensacao_Boca_ID","Aparência":"Aparencia_ID"}[dim]
+        if sheet.empty:
+            continue
+        id_col = {"Aroma":"Parametro_ID", "Sabor":"Sabor_ID", "Mouthfeel":"Sensacao_Boca_ID", "Aparência":"Aparencia_ID"}[dim]
         for group, labels in label_map.items():
-            df=sheet[sheet["Grupo_UI"]==group]
+            df = sheet[sheet["Grupo_UI"] == group]
             for label in labels:
-                row=df[df["Rótulo_PT"].astype(str)==str(label)]
-                if row.empty: continue
-                rr=row.iloc[0]; pid=_canonical_pid_from_ui(dim,rr)
-                if not pid: continue
-                val=int(values.get(str(rr[id_col]),0))
-                v[pid]=max(v.get(pid,0),val)
+                row = df[df["Rótulo_PT"].astype(str) == str(label)]
+                if row.empty:
+                    continue
+                rr = row.iloc[0]
+                pid = _canonical_pid_from_ui(dim, rr)
+                if not pid:
+                    continue
+                val = int(values.get(str(rr[id_col]), 0))
+                v[pid] = max(v.get(pid, 0), val)
     return v
 
+
 def _aggregate_refs():
-    cols=["Código","Estilo","Parametro_ID","Mínimo_Operacional","Típico","Máximo_Operacional","Status"]
-    r=references[cols].copy()
-    priority={"esperado":3,"opcional":2,"não especificado":1}
-    r["prio"]=r["Status"].map(priority).fillna(0)
-    rows=[]
-    for (code,style,pid),g in r.groupby(["Código","Estilo","Parametro_ID"],dropna=False):
-        g=g.sort_values("prio",ascending=False); top=g.iloc[0]
-        rows.append({"Código":code,"Estilo":style,"Parametro_ID":pid,"Min":g["Mínimo_Operacional"].max() if top["Status"]!="não especificado" else 0,
-                     "Typical":g.loc[g["Status"]!="não especificado","Típico"].mean() if (g["Status"]!="não especificado").any() else 0,
-                     "Max":g["Máximo_Operacional"].min() if top["Status"]!="não especificado" else 0,"Status":top["Status"]})
+    cols = ["Código", "Estilo", "Parametro_ID", "Mínimo_Operacional", "Típico", "Máximo_Operacional", "Status"]
+    r = references[cols].copy()
+    priority = {"esperado": 3, "opcional": 2, "não especificado": 1}
+    r["prio"] = r["Status"].map(priority).fillna(0)
+    rows = []
+    for (code, style, pid), g in r.groupby(["Código", "Estilo", "Parametro_ID"], dropna=False):
+        g = g.sort_values("prio", ascending=False)
+        top = g.iloc[0]
+        rows.append({
+            "Código": code, "Estilo": style, "Parametro_ID": pid,
+            "Min": g["Mínimo_Operacional"].max() if top["Status"] != "não especificado" else 0,
+            "Typical": g.loc[g["Status"] != "não especificado", "Típico"].mean() if (g["Status"] != "não especificado").any() else g["Típico"].mean(),
+            "Max": g["Máximo_Operacional"].min() if top["Status"] != "não especificado" else 0,
+            "Status": top["Status"],
+        })
     return pd.DataFrame(rows)
 
+
+def _fit_row(value, row):
+    """Fit 0..1. Referências esperadas/opcionais usam faixa; não especificado usa apenas típico como sinal fraco."""
+    status = str(row["Status"])
+    val = float(value)
+    if status in ("esperado", "opcional"):
+        lo, hi = float(row["Min"]), float(row["Max"])
+        if lo <= val <= hi:
+            return 1.0, 1.0, "range"
+        dist = (lo - val) if val < lo else (val - hi)
+        span = max(hi - lo, 1.0)
+        return max(0.0, 1.0 - dist / (span * 1.5)), 1.0, "range"
+    # "não especificado" NÃO significa indesejável. Quando há um típico derivado
+    # de descritores, ele serve apenas como referência descritiva fraca para ordenar estilos.
+    typ = float(row["Typical"])
+    if typ > 0:
+        return max(0.0, 1.0 - abs(val - typ) / 5.0), 0.35, "typical"
+    return None, 0.0, "ignore"
+
+
+def _score_user_param(pid, value, rr):
+    pids = MAIN_TO_CANONICAL.get(pid, [pid])
+    rows = rr[rr["Parametro_ID"].isin(pids)]
+    if rows.empty:
+        return None, [], []
+    fits, missing = [], []
+    for _, row in rows.iterrows():
+        fit, weight, kind = _fit_row(value, row)
+        if fit is None:
+            continue
+        fits.append((fit, weight))
+        if str(row["Status"]) == "esperado" and float(row["Típico"]) > 0 and float(value) < float(row["Típico"]) - 1:
+            missing.append((str(row["Parametro_ID"]), float(row["Típico"]), float(value)))
+    if not fits:
+        return None, missing, []
+    # Para um eixo principal que reúne várias nuances, usa a média ponderada das referências disponíveis.
+    score = sum(f*w for f,w in fits) / sum(w for f,w in fits)
+    return score, missing, []
+
+
 def calculate_matching():
-    user=build_user_vector(); refs=_aggregate_refs(); results=[]
-    tech=st.session_state.get("technical",{})
-    tech_map={"OG":"OG","FG":"FG","IBU":"IBU","SRM":"SRM","ABV":"ABV"}
-    # Pesos: principais sensoriais > nuances; técnicos complementares.
-    weights={f"P{i:03d}":1.0 for i in range(1,17)}
-    weights.update({f"P{i:03d}":0.55 for i in range(17,59)})
-    for _,sty in styles.iterrows():
-        code=sty["Código"]; name=sty["Estilo"]; rr=refs[refs["Código"]==code]
-        contributions=[]; missing=[]; unexpected=[]
-        for pid,val in user.items():
-            val=float(val); ref=rr[rr["Parametro_ID"]==pid]
-            if ref.empty: continue
-            x=ref.iloc[0]; status=x["Status"]
-            w=weights.get(pid,0.5)
-            if status in ("esperado","opcional"):
-                lo,hi=float(x["Min"]),float(x["Max"]); typ=float(x["Typical"])
-                if lo<=val<=hi:
-                    fit=1.0
-                else:
-                    dist=(lo-val) if val<lo else (val-hi); fit=max(0.0,1.0-dist/4.0)
-                # características esperadas ausentes/abaixo do típico geram lacuna, sem transformar automaticamente em defeito
-                if status=="esperado" and val < max(0,typ-1.0):
-                    missing.append((str(x["Parametro_ID"]),str(x["Parametro_ID"]),round(typ,1),round(val,1)))
-                contributions.append((fit,w))
+    user = build_user_vector()
+    refs = _aggregate_refs()
+    results = []
+    tech = st.session_state.get("technical", {})
+    tech_map = {"OG":"OG", "FG":"FG", "IBU":"IBU", "SRM":"SRM", "ABV":"ABV"}
+    # Eixos principais têm peso maior; nuances refinam o resultado.
+    weights = {f"P{i:03d}": 1.0 for i in range(1, 17)}
+    weights.update({f"P{i:03d}": 0.65 for i in range(17, 59)})
+
+    for _, sty in styles.iterrows():
+        code, name = sty["Código"], sty["Estilo"]
+        rr = refs[refs["Código"] == code]
+        contributions, missing, unexpected = [], [], []
+
+        for pid, val in user.items():
+            val = float(val)
+            score, miss, _ = _score_user_param(pid, val, rr)
+            if score is None:
+                continue
+            contributions.append((score, weights.get(pid, 0.65)))
+            missing.extend(miss)
+
+            # Só considerar como "não esperado" se o banco trouxer explicitamente
+            # um status desse tipo. "não especificado" é neutro.
+            explicit_bad = rr[(rr["Parametro_ID"].isin(MAIN_TO_CANONICAL.get(pid, [pid]))) &
+                              (rr["Status"].astype(str).str.lower().isin(["indesejável", "indesejavel", "undesirable"]))]
+            if not explicit_bad.empty and val >= 2:
+                unexpected.append((pid, val))
+
+        # Dados técnicos — somente campos realmente preenchidos.
+        tech_scores = []
+        for field, col in tech_map.items():
+            val = tech.get(field)
+            if val is None:
+                continue
+            mn, mx = sty.get(f"{col} min"), sty.get(f"{col} max")
+            if pd.isna(mn) or pd.isna(mx):
+                continue
+            val, mn, mx = float(val), float(mn), float(mx)
+            if mn <= val <= mx:
+                fit = 1.0
             else:
-                # se o avaliador detectou uma nuance que não consta como esperada/opcional no perfil,
-                # registramos como "não esperado"; não chamamos de defeito.
-                if val>=2:
-                    unexpected.append((pid,round(val,1)))
-                    contributions.append((0.0,w*0.55))
-        # Dados técnicos
-        tech_scores=[]
-        for field,col in tech_map.items():
-            val=tech.get(field)
-            if val is None: continue
-            mn=sty.get(f"{col} min"); mx=sty.get(f"{col} max")
-            if pd.isna(mn) or pd.isna(mx): continue
-            val=float(val); mn=float(mn); mx=float(mx)
-            fit=1.0 if mn<=val<=mx else max(0.0,1.0-min(abs(val-mn),abs(val-mx))/((mx-mn) if mx>mn else 1))
+                span = max(mx - mn, 0.001)
+                fit = max(0.0, 1.0 - min(abs(val-mn), abs(val-mx)) / span)
             tech_scores.append(fit)
-        # pH não tem referência no banco de estilos, portanto não entra no score.
-        if tech_scores: contributions.append((sum(tech_scores)/len(tech_scores),0.8))
+        if tech_scores:
+            contributions.append((sum(tech_scores)/len(tech_scores), 1.2))
+
         if contributions:
-            score=100*sum(f*w for f,w in contributions)/sum(w for f,w in contributions)
-        else: score=0
-        results.append({"Código":code,"Estilo":name,"Score":score,"missing":missing,"unexpected":unexpected,"tech_scores":tech_scores})
-    return sorted(results,key=lambda x:x["Score"],reverse=True)[:3]
+            score = 100 * sum(f*w for f,w in contributions) / sum(w for f,w in contributions)
+        else:
+            score = 0
+
+        # Remover duplicatas de lacunas para não poluir o resultado.
+        seen = set(); clean_missing = []
+        for item in missing:
+            key = item[0]
+            if key not in seen:
+                seen.add(key); clean_missing.append(item)
+        results.append({"Código":code, "Estilo":name, "Score":score,
+                        "missing":clean_missing, "unexpected":unexpected,
+                        "tech_scores":tech_scores, "evaluated":len(contributions)})
+
+    # Se nenhum dado útil foi preenchido, não inventar uma proximidade.
+    results = [r for r in results if r["evaluated"] > 0]
+    return sorted(results, key=lambda x: x["Score"], reverse=True)[:3]
 
 
 # -----------------------------
@@ -665,7 +791,7 @@ if step == "Aroma":
          ("Fermentação", "aroma_main_fermentation")]
     ):
         with col:
-            value = st.slider(label, 0, 10, int(st.session_state.aroma_main[label]), 1, key=key)
+            value = st.slider(label, 0, 10, int(st.session_state.aroma_main[label]), 1, key=key, on_change=mark_main_evaluated, args=(f"Aroma — {label}",))
             st.session_state.aroma_main[label] = value
             st.caption(f"**{value}/10 — {label_intensity(value)}**")
 
@@ -768,7 +894,7 @@ elif step == "Aparência":
         v = st.slider(
             "Tamanho do colarinho",
             0, 10, int(st.session_state.appearance_main["Formação da espuma"]), 1,
-            key="appearance_head_size"
+            key="appearance_head_size", on_change=mark_main_evaluated, args=("Aparência — Espuma",)
         )
         st.session_state.appearance_main["Formação da espuma"] = v
         st.caption(
@@ -889,7 +1015,8 @@ elif step == "Sabor":
     for i, (label, key) in enumerate(flavor_main_items):
         with main_cols[i % 4]:
             value = st.slider(
-                label, 0, 10, int(st.session_state.flavor_main[label]), 1, key=key
+                label, 0, 10, int(st.session_state.flavor_main[label]), 1, key=key,
+                on_change=mark_main_evaluated, args=(f"Sabor — {label}",)
             )
             st.session_state.flavor_main[label] = value
             st.caption(f"**{value}/10 — {label_intensity(value)}**")
@@ -1016,6 +1143,8 @@ elif step == "Sensação de boca":
                 int(st.session_state.mouth_main[label]),
                 1,
                 key=key,
+                on_change=mark_main_evaluated,
+                args=(f"Boca — {label}",),
             )
             st.session_state.mouth_main[label] = value
             st.caption(f"**{value}/10 — {label_intensity(value, True)}**")
@@ -1112,18 +1241,16 @@ elif step == "Dados técnicos":
 
     c1, c2 = st.columns(2)
     with c1:
-        og = st.number_input("OG — Original Gravity", min_value=1.000, max_value=1.300, value=1.000, step=0.001, format="%.3f", key="tech_og")
-        fg = st.number_input("FG — Final Gravity", min_value=0.990, max_value=1.100, value=1.000, step=0.001, format="%.3f", key="tech_fg")
-        ibu = st.number_input("IBU — Amargor", min_value=0.0, max_value=200.0, value=0.0, step=1.0, key="tech_ibu")
+        og = st.number_input("OG — Original Gravity", min_value=1.000, max_value=1.300, value=None, step=0.001, format="%.3f", key="tech_og", placeholder="Não informado")
+        fg = st.number_input("FG — Final Gravity", min_value=0.990, max_value=1.100, value=None, step=0.001, format="%.3f", key="tech_fg", placeholder="Não informado")
+        ibu = st.number_input("IBU — Amargor", min_value=0.0, max_value=200.0, value=None, step=1.0, key="tech_ibu", placeholder="Não informado")
     with c2:
-        abv = st.number_input("ABV — Teor alcoólico (%)", min_value=0.0, max_value=30.0, value=0.0, step=0.1, key="tech_abv")
-        srm = st.number_input("SRM — Cor", min_value=0.0, max_value=50.0, value=0.0, step=0.5, key="tech_srm")
-        ph = st.number_input("pH", min_value=0.0, max_value=14.0, value=0.0, step=0.1, key="tech_ph")
+        abv = st.number_input("ABV — Teor alcoólico (%)", min_value=0.0, max_value=30.0, value=None, step=0.1, key="tech_abv", placeholder="Não informado")
+        srm = st.number_input("SRM — Cor", min_value=0.0, max_value=50.0, value=None, step=0.5, key="tech_srm", placeholder="Não informado")
+        ph = st.number_input("pH", min_value=0.0, max_value=14.0, value=None, step=0.1, key="tech_ph", placeholder="Não informado")
 
     st.session_state.technical = {
-        "OG": og if og != 1.000 else None, "FG": fg if fg != 1.000 else None,
-        "ABV": abv if abv != 0 else None, "IBU": ibu if ibu != 0 else None,
-        "SRM": srm if srm != 0 else None, "pH": ph if ph != 0 else None,
+        "OG": og, "FG": fg, "ABV": abv, "IBU": ibu, "SRM": srm, "pH": ph,
     }
 
     if og > 1.000 and fg > 0 and fg < og:
@@ -1138,10 +1265,10 @@ elif step == "Dados técnicos":
 # -----------------------------
 elif step == "Resultado":
     st.header("🍺 ESTILOS MAIS PRÓXIMOS")
-    st.caption("A compatibilidade é uma estimativa operacional baseada nos dados preenchidos e nas referências estruturadas do banco. Não é uma classificação oficial BJCP.")
+    st.caption("O resultado considera somente os parâmetros realmente avaliados. Referências esperadas/opcionais têm peso maior; descritores sem status de expectativa podem servir apenas como sinal descritivo. Não é uma classificação oficial BJCP.")
     top3 = calculate_matching()
     if not top3:
-        st.warning("Não foi possível calcular o matching com os dados atuais.")
+        st.warning("Nenhum parâmetro foi avaliado ainda. Volte às etapas anteriores e registre pelo menos uma característica ou dado técnico.")
     else:
         for i,res in enumerate(top3,1):
             with st.container(border=True):
