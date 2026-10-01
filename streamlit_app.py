@@ -16,7 +16,11 @@ DB_PATH = Path("data/bjcp_database.xlsx")
 # Dados
 # -----------------------------
 @st.cache_data
-def load_database(path):
+def load_database(path_str, file_mtime_ns, file_size):
+    # O mtime/tamanho entram na chave do cache para que o Streamlit
+    # recarregue automaticamente quando o Excel do GitHub for substituído.
+    path = Path(path_str)
+
     if not path.exists():
         return None, f"Banco não encontrado em: {path}"
 
@@ -31,7 +35,15 @@ def load_database(path):
         return None, str(e)
 
 
-db, db_error = load_database(DB_PATH)
+if not DB_PATH.exists():
+    st.error(f"Banco não encontrado em: {DB_PATH}")
+    st.stop()
+
+db, db_error = load_database(
+    str(DB_PATH),
+    DB_PATH.stat().st_mtime_ns,
+    DB_PATH.stat().st_size,
+)
 
 if db_error:
     st.error(f"Erro ao carregar o banco: {db_error}")
