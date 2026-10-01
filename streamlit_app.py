@@ -327,17 +327,20 @@ def render_beer_glass(srm, foam_size, foam_color):
     liquid = beer_color_from_srm(srm)
     foam = foam_color_hex(foam_color)
 
-    # Tamanho visual do colarinho: 0 = mínimo, 10 = máximo.
-    head_h = 12 + (float(foam_size) / 10.0) * 92
-    liquid_top = 360 - head_h
+    # Tamanho visual do colarinho:
+    # 0 = sem colarinho; 10 = colarinho muito alto.
+    # A cerveja continua ocupando o copo até a base; somente a altura
+    # da espuma muda.
+    glass_top = 35
+    glass_bottom = 365
+    head_h = (float(foam_size) / 10.0) * 105
+    liquid_top = glass_top + head_h
+
     # Copo trapezoidal simplificado.
     glass_left = 75
     glass_right = 245
-    glass_top = 35
-    glass_bottom = 365
 
     # Retângulo do líquido dentro do corpo do copo.
-    liquid_height = max(0, glass_bottom - liquid_top)
 
     # Escurecimento/reflexo para dar sensação de volume.
     html = f"""
@@ -367,20 +370,31 @@ def render_beer_glass(srm, foam_size, foam_color):
           <!-- sombra -->
           <ellipse cx="160" cy="383" rx="92" ry="12" fill="#000" opacity="0.18"/>
 
-          <!-- líquido + espuma recortados no formato do copo -->
+          <!-- cerveja + espuma recortadas no formato do copo -->
           <g clip-path="url(#glassClip)">
-            <rect x="65" y="{liquid_top}" width="190" height="{liquid_height}"
+            <!-- A cerveja ocupa todo o corpo abaixo do colarinho -->
+            <rect x="65" y="{liquid_top}" width="190"
+                  height="{glass_bottom - liquid_top}"
                   fill="url(#beerGradient)"/>
 
-            <!-- linha de interface cerveja/espuma -->
-            <rect x="65" y="{liquid_top}" width="190" height="{head_h}"
-                  fill="url(#foamGradient)"/>
+            <!-- Sem colarinho: a cerveja chega até o topo do copo -->
+            <rect x="65" y="{glass_top}" width="190" height="{head_h}"
+                  fill="url(#foamGradient)"
+                  opacity="{1 if head_h > 0 else 0}"/>
 
-            <!-- bolhas discretas na espuma -->
-            <circle cx="105" cy="{liquid_top + head_h*0.42}" r="3" fill="#fff" opacity="0.30"/>
-            <circle cx="132" cy="{liquid_top + head_h*0.66}" r="2" fill="#fff" opacity="0.25"/>
-            <circle cx="178" cy="{liquid_top + head_h*0.35}" r="3" fill="#fff" opacity="0.25"/>
-            <circle cx="207" cy="{liquid_top + head_h*0.62}" r="2" fill="#fff" opacity="0.22"/>
+            <!-- linha de interface cerveja/espuma -->
+            <line x1="65" y1="{liquid_top}" x2="255" y2="{liquid_top}"
+                  stroke="#FFFFFF" stroke-width="2" opacity="0.20"/>
+
+            <!-- bolhas discretas somente quando existe espuma -->
+            <circle cx="105" cy="{glass_top + head_h*0.42}" r="3"
+                    fill="#fff" opacity="{0.30 if head_h > 0 else 0}"/>
+            <circle cx="132" cy="{glass_top + head_h*0.66}" r="2"
+                    fill="#fff" opacity="{0.25 if head_h > 0 else 0}"/>
+            <circle cx="178" cy="{glass_top + head_h*0.35}" r="3"
+                    fill="#fff" opacity="{0.25 if head_h > 0 else 0}"/>
+            <circle cx="207" cy="{glass_top + head_h*0.62}" r="2"
+                    fill="#fff" opacity="{0.22 if head_h > 0 else 0}"/>
 
             <!-- reflexo do vidro -->
             <path d="M100 55 L82 330" stroke="#fff" stroke-width="10"
@@ -588,7 +602,10 @@ else:
             key="appearance_head_size"
         )
         st.session_state.appearance_main["Formação da espuma"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+        st.caption(
+            f"**{v}/10 — {label_intensity(v, True)}** · "
+            "controla somente o tamanho do colarinho no copo"
+        )
     with c2:
         v = st.slider(
             "Retenção da espuma",
@@ -596,7 +613,10 @@ else:
             key="appearance_head_retention"
         )
         st.session_state.appearance_main["Retenção da espuma"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+        st.caption(
+            f"**{v}/10 — {label_intensity(v, True)}** · "
+            "registrada separadamente; não altera o tamanho do colarinho"
+        )
 
     # Head
     st.markdown("### 🫧 Espuma")
