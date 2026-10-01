@@ -509,7 +509,7 @@ step = st.radio(
 )
 st.session_state.step = step
 
-step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3, "Sensação de boca": 4, "Dados técnicos": 5}[step]
+step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3, "Sensação de boca": 4, "Dados técnicos": 5, "Resultado": 6}[step]
 st.progress(step_num / 6, text=f"Etapa {step_num} de 6 — {step}")
 
 # -----------------------------
