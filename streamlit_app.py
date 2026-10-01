@@ -327,14 +327,16 @@ def render_beer_glass(srm, foam_size, foam_color):
     liquid = beer_color_from_srm(srm)
     foam = foam_color_hex(foam_color)
 
-    # Tamanho visual do colarinho:
+    # Nível da cerveja é FIXO.
     # 0 = sem colarinho; 10 = colarinho muito alto.
-    # A cerveja continua ocupando o copo até a base; somente a altura
-    # da espuma muda.
+    # O colarinho cresce PARA CIMA a partir do nível fixo da cerveja,
+    # deixando a parte superior do copo vazia.
     glass_top = 35
     glass_bottom = 365
-    head_h = (float(foam_size) / 10.0) * 105
-    liquid_top = glass_top + head_h
+    liquid_top = 265
+    max_head_h = liquid_top - glass_top
+    head_h = (float(foam_size) / 10.0) * max_head_h
+    foam_top = liquid_top - head_h
 
     # Copo trapezoidal simplificado.
     glass_left = 75
@@ -372,28 +374,28 @@ def render_beer_glass(srm, foam_size, foam_color):
 
           <!-- cerveja + espuma recortadas no formato do copo -->
           <g clip-path="url(#glassClip)">
-            <!-- A cerveja ocupa todo o corpo abaixo do colarinho -->
+            <!-- CERVEJA: nível superior FIXO -->
             <rect x="65" y="{liquid_top}" width="190"
                   height="{glass_bottom - liquid_top}"
                   fill="url(#beerGradient)"/>
 
-            <!-- Sem colarinho: a cerveja chega até o topo do copo -->
-            <rect x="65" y="{glass_top}" width="190" height="{head_h}"
+            <!-- COLARINHO: cresce para CIMA, sem mover a cerveja -->
+            <rect x="65" y="{foam_top}" width="190" height="{head_h}"
                   fill="url(#foamGradient)"
                   opacity="{1 if head_h > 0 else 0}"/>
 
-            <!-- linha de interface cerveja/espuma -->
+            <!-- interface fixa entre cerveja e espuma -->
             <line x1="65" y1="{liquid_top}" x2="255" y2="{liquid_top}"
                   stroke="#FFFFFF" stroke-width="2" opacity="0.20"/>
 
-            <!-- bolhas discretas somente quando existe espuma -->
-            <circle cx="105" cy="{glass_top + head_h*0.42}" r="3"
+            <!-- bolhas dentro do colarinho -->
+            <circle cx="105" cy="{foam_top + head_h*0.42}" r="3"
                     fill="#fff" opacity="{0.30 if head_h > 0 else 0}"/>
-            <circle cx="132" cy="{glass_top + head_h*0.66}" r="2"
+            <circle cx="132" cy="{foam_top + head_h*0.66}" r="2"
                     fill="#fff" opacity="{0.25 if head_h > 0 else 0}"/>
-            <circle cx="178" cy="{glass_top + head_h*0.35}" r="3"
+            <circle cx="178" cy="{foam_top + head_h*0.35}" r="3"
                     fill="#fff" opacity="{0.25 if head_h > 0 else 0}"/>
-            <circle cx="207" cy="{glass_top + head_h*0.62}" r="2"
+            <circle cx="207" cy="{foam_top + head_h*0.62}" r="2"
                     fill="#fff" opacity="{0.22 if head_h > 0 else 0}"/>
 
             <!-- reflexo do vidro -->
@@ -622,18 +624,10 @@ else:
     st.markdown("### 🫧 Espuma")
     c1, c2 = st.columns(2)
     with c1:
-        v = st.slider(
-            "Formação / tamanho da espuma",
-            0, 10, int(st.session_state.appearance_main["Formação da espuma"]), 1,
-            key="appearance_head_size"
-        )
-        st.session_state.appearance_main["Formação da espuma"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
-    with c2:
-        v = st.slider(
-            "Retenção da espuma",
-            0, 10, int(st.session_state.appearance_main["Retenção da espuma"]), 1,
-            key="appearance_head_retention"
+        st.caption(
+            f"**{st.session_state.appearance_main['Formação da espuma']}/10 — "
+            f"{label_intensity(st.session_state.appearance_main['Formação da espuma'], True)}** · "
+            "controla somente o tamanho do colarinho no copo"
         )
         st.session_state.appearance_main["Retenção da espuma"] = v
         st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
