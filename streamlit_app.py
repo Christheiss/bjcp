@@ -1131,11 +1131,7 @@ elif step == "Dados técnicos":
         st.info(f"ABV estimado a partir de OG e FG: **{abv_est:.1f}%**")
 
     st.divider()
-    st.markdown("### 🔎 Finalizar avaliação")
-    st.caption("Depois de preencher os dados desejados, gere o resultado para comparar sua cerveja com os estilos BJCP.")
-    if st.button("🍺 Gerar os 3 estilos mais próximos", type="primary", use_container_width=True, key="generate_matching"):
-        st.session_state.step = "Resultado"
-        st.rerun()
+    st.caption("Os dados acima são opcionais. Ao entrar na etapa **Resultado**, o matching é calculado automaticamente.")
 
 # -----------------------------
 # RESULTADO
