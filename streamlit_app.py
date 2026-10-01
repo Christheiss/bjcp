@@ -271,89 +271,66 @@ else:
     # Cor
     st.markdown("### 🎨 Cor")
 
-    color_df = appearance_ui[
-        (appearance_ui["Grupo_UI"] == "🎨 Cor") &
-        (appearance_ui["Controle_UI"].isin(["cor_select", "info"]))
-    ].copy()
+    # O avaliador escolhe apenas o SRM. A amostra visual e o nome
+    # da cor aparecem automaticamente.
+    srm = st.number_input(
+        "SRM",
+        min_value=0.0,
+        max_value=50.0,
+        value=float(st.session_state.appearance_srm or 0),
+        step=0.5,
+        key="appearance_srm_input",
+    )
+    st.session_state.appearance_srm = srm if srm > 0 else None
 
-    color_options = color_df[
-        ~color_df["Termo_EN"].str.lower().isin(["srm", "ebc", "color density"])
-    ]["Rótulo_PT"].drop_duplicates().tolist()
+    def color_name_from_srm(value):
+        if value <= 0:
+            return "Sem cor informada"
 
-    color_col, srm_col = st.columns([2, 1])
-    with color_col:
-        current_color = st.session_state.appearance_color
-        color_index = color_options.index(current_color) if current_color in color_options else 0
-        chosen_color = st.selectbox(
-            "Cor observada",
-            [""] + color_options,
-            index=(color_options.index(current_color) + 1 if current_color in color_options else 0),
-            key="appearance_color_select",
+        ranges = [
+            ("Palha", 2, 3),
+            ("Amarelo", 3, 4),
+            ("Dourado", 5, 6),
+            ("Âmbar", 6, 9),
+            ("Âmbar profundo / cobre claro", 10, 14),
+            ("Cobre", 14, 17),
+            ("Cobre profundo / marrom claro", 17, 18),
+            ("Marrom", 19, 22),
+            ("Marrom escuro", 22, 30),
+            ("Muito marrom escuro", 30, 35),
+            ("Preto", 30, 40),
+            ("Preto opaco", 40, 50),
+        ]
+
+        candidates = [
+            (name, low, high, abs(value - ((low + high) / 2)))
+            for name, low, high in ranges
+            if low <= value <= high
+        ]
+
+        if candidates:
+            return min(candidates, key=lambda x: x[3])[0]
+        if value < 2:
+            return "Mais claro que palha"
+        return "Mais escuro que preto opaco"
+
+    if srm > 0:
+        color_name = color_name_from_srm(srm)
+        sample_hex = srm_sample_hex(srm)
+
+        color_swatch(
+            sample_hex,
+            f"SRM {srm:g} · {color_name}"
         )
-        st.session_state.appearance_color = chosen_color
 
-        if chosen_color:
-            # A tabela Referencia_Cor_SRM contém o nome da cor e o
-            # SRM representativo usado para preencher automaticamente o campo.
-            cr = srm_df[
-                srm_df["Descrição"].astype(str).str.strip().str.lower()
-                == chosen_color.strip().lower()
-            ]
-            if not cr.empty:
-                srm_rep = float(cr.iloc[0]["SRM_representativo"])
-                ref_srm = str(cr.iloc[0]["SRM"])
-                ref_type = str(cr.iloc[0]["Tipo/Fonte"])
-
-                # Ao escolher a cor, usa automaticamente o SRM representativo.
-                # O usuário continua podendo alterar para o SRM realmente medido.
-                if st.session_state.get("appearance_last_color") != chosen_color:
-                    st.session_state.appearance_srm = srm_rep
-                    st.session_state.appearance_last_color = chosen_color
-
-                st.caption(
-                    f"Referência de SRM: **{ref_srm}** · "
-                    f"valor médio usado: **{srm_rep:g}**"
-                )
-                if "estimativa operacional" in ref_type.lower():
-                    st.caption("ⓘ Valor médio estimado pelo aplicativo; não é uma faixa SRM oficial do BJCP.")
-            else:
-                st.caption(
-                    "Descritor presente nas diretrizes; sem faixa SRM específica "
-                    "na tabela de referência do BJCP."
-                )
-
-    with srm_col:
-        srm = st.number_input(
-            "SRM",
-            min_value=0.0,
-            max_value=60.0,
-            value=float(st.session_state.appearance_srm or 0),
-            step=0.5,
-            key="appearance_srm_input",
+        st.markdown(f"### {color_name}")
+        st.caption(
+            "Nome aproximado a partir da referência de cor do BJCP. "
+            "A percepção visual pode variar conforme iluminação, recipiente e observador."
         )
-        st.session_state.appearance_srm = srm if srm > 0 else None
+    else:
+        st.caption("Escolha o SRM para visualizar a cor e o nome correspondente.")
 
-        if srm > 0:
-            sample_hex = srm_sample_hex(srm)
-            color_swatch(sample_hex, f"SRM {srm:g} · amostra aproximada")
-
-    # Reflexos
-    highlights_df = appearance_ui[
-        (appearance_ui["Grupo_UI"] == "🎨 Cor") &
-        (appearance_ui["Subcategoria"] == "Reflexos")
-    ]
-    if not highlights_df.empty:
-        highlights = st.multiselect(
-            "Reflexos / tons secundários",
-            highlights_df["Rótulo_PT"].drop_duplicates().tolist(),
-            default=st.session_state.appearance_highlights,
-            key="appearance_highlights_select",
-        )
-        st.session_state.appearance_highlights = highlights
-
-    st.divider()
-
-    # Visual intensity
     st.markdown("### 🔎 Clareza e turbidez")
     c1, c2 = st.columns(2)
     with c1:
