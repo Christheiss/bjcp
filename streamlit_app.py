@@ -44,6 +44,7 @@ references = db.get("Valores_Referencia_BJCP", pd.DataFrame())
 aroma_ui = db.get("Vocabulario_Aroma_UI", pd.DataFrame())
 appearance_ui = db.get("Vocabulario_Aparencia_UI", pd.DataFrame())
 intensity_df = db.get("Escala_Intensidade_BJCP", pd.DataFrame())
+srm_df = db.get("Referencia_Cor_SRM", pd.DataFrame())
 appearance_scale = db.get("Escala_Aparencia_UI", pd.DataFrame())
 color_ref = db.get("Referencia_Cor_BJCP", pd.DataFrame())
 
@@ -72,6 +73,69 @@ def slider_with_label(label, key, value=0, appearance=False):
     value = st.slider(label, 0, 10, int(value), 1, key=key)
     st.caption(f"**{value}/10 — {label_intensity(value, appearance)}**")
     return value
+
+# -----------------------------
+# Cor / SRM
+# -----------------------------
+def srm_sample_hex(srm):
+    """Amostra gráfica aproximada para visualização do SRM."""
+    try:
+        value = float(srm)
+    except Exception:
+        return "#D9A441"
+
+    # Interpolação simples entre pontos de referência.
+    points = [
+        (2.0, "#FFE699"), (3.5, "#F5D76E"), (5.5, "#D9A441"),
+        (7.5, "#B87333"), (12.0, "#9A5A2A"), (15.5, "#8A4B24"),
+        (17.5, "#70452A"), (20.5, "#5A3825"), (26.0, "#3F2619"),
+        (32.5, "#2A1A13"), (35.0, "#17110E"), (40.0, "#090706")
+    ]
+
+    if value <= points[0][0]:
+        return points[0][1]
+    if value >= points[-1][0]:
+        return points[-1][1]
+
+    def hex_rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    for (x1, c1), (x2, c2) in zip(points, points[1:]):
+        if x1 <= value <= x2:
+            t = (value - x1) / (x2 - x1)
+            a = hex_rgb(c1)
+            b = hex_rgb(c2)
+            rgb = tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+            return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+    return "#D9A441"
+
+def color_swatch(hex_color, label):
+    st.markdown(
+        f"""
+        <div style="
+            display:flex;
+            align-items:center;
+            gap:12px;
+            margin:8px 0 12px 0;
+        ">
+            <div style="
+                width:72px;
+                height:48px;
+                border-radius:8px;
+                background:{hex_color};
+                border:1px solid rgba(255,255,255,.35);
+                box-shadow:0 2px 8px rgba(0,0,0,.25);
+            "></div>
+            <div>
+                <div style="font-weight:600;">Amostra visual</div>
+                <div style="opacity:.7;font-size:.85rem;">{label}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 # -----------------------------
 # Estado
@@ -104,6 +168,8 @@ if "appearance_highlights" not in st.session_state:
     st.session_state.appearance_highlights = []
 if "appearance_srm" not in st.session_state:
     st.session_state.appearance_srm = None
+if "appearance_last_color" not in st.session_state:
+    st.session_state.appearance_last_color = ""
 
 # -----------------------------
 # Header
@@ -229,13 +295,31 @@ else:
         if chosen_color:
             cr = color_ref[color_ref["Descrição_PT"].str.lower() == chosen_color.lower()]
             if not cr.empty:
-                st.caption(f"Referência BJCP de SRM: **{cr.iloc[0]['SRM_aprox']}**")
+                srm_rep = float(cr.iloc[0]["SRM_representativo"])
+                ref_srm = str(cr.iloc[0]["SRM"])
+                ref_type = str(cr.iloc[0]["Tipo/Fonte"])
+
+                # Ao escolher a cor, usa automaticamente o SRM representativo.
+                # O usuário continua podendo alterar para o SRM realmente medido.
+                if st.session_state.get("appearance_last_color") != chosen_color:
+                    st.session_state.appearance_srm = srm_rep
+                    st.session_state.appearance_last_color = chosen_color
+
+                st.caption(
+                    f"Referência de SRM: **{ref_srm}** · "
+                    f"valor médio usado: **{srm_rep:g}**"
+                )
+                if "estimativa operacional" in ref_type.lower():
+                    st.caption("ⓘ Valor médio estimado pelo aplicativo; não é uma faixa SRM oficial do BJCP.")
             else:
-                st.caption("Descritor presente nas diretrizes; sem faixa SRM específica na tabela de referência.")
+                st.caption(
+                    "Descritor presente nas diretrizes; sem faixa SRM específica "
+                    "na tabela de referência do BJCP."
+                )
 
     with srm_col:
         srm = st.number_input(
-            "SRM medido (opcional)",
+            "SRM",
             min_value=0.0,
             max_value=60.0,
             value=float(st.session_state.appearance_srm or 0),
@@ -243,6 +327,10 @@ else:
             key="appearance_srm_input",
         )
         st.session_state.appearance_srm = srm if srm > 0 else None
+
+        if srm > 0:
+            sample_hex = srm_sample_hex(srm)
+            color_swatch(sample_hex, f"SRM {srm:g} · amostra aproximada")
 
     # Reflexos
     highlights_df = appearance_ui[
