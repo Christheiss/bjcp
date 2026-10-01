@@ -1375,64 +1375,133 @@ def _keyword_match(selected_term, profile_term):
     return bool(toks_a & toks_b)
 
 
+def _profile_term_matches_user(profile_row, user_keywords):
+    """Retorna True se qualquer descritor informado pelo avaliador corresponde ao termo do perfil."""
+    dim_map = {
+        "Aroma": "Aroma",
+        "Flavor": "Sabor",
+        "Mouthfeel": "Sensação de boca",
+        "Appearance": "Aparência",
+    }
+    p_dim = dim_map.get(str(profile_row.get("Parâmetro", "")), str(profile_row.get("Parâmetro", "")))
+    p_en = str(profile_row.get("Termo EN", ""))
+    p_pt = str(profile_row.get("Termo PT", ""))
+    for u in user_keywords:
+        if u.get("dim") != p_dim:
+            continue
+        # Compara tanto o termo original em inglês quanto a tradução exibida na UI.
+        if _keyword_match(u.get("term_en", ""), p_en) or _keyword_match(u.get("term_pt", ""), p_pt):
+            return True
+        # Também tenta a tradução do termo informado contra o inglês do perfil.
+        if _keyword_match(u.get("term_pt", ""), p_en):
+            return True
+    return False
+
+
+def _render_profile_chips(part, user_keywords):
+    """Renderiza TODOS os termos do perfil: cinza por padrão, verde quando bate."""
+    if part.empty:
+        st.caption("Nenhum descritor estruturado disponível para esta dimensão.")
+        return
+
+    # Preserva a ordem da planilha e remove duplicatas exatas.
+    part = part.drop_duplicates(subset=["Termo EN", "Termo PT"]).copy()
+
+    # Separa por subcategoria para que o conjunto completo continue legível.
+    subcategories = []
+    if "Subcategoria" in part.columns:
+        for value in part["Subcategoria"].fillna("Geral").astype(str):
+            if value not in subcategories:
+                subcategories.append(value)
+    if not subcategories:
+        subcategories = ["Geral"]
+
+    for subcat in subcategories:
+        sub = part[part["Subcategoria"].fillna("Geral").astype(str) == subcat].copy() if "Subcategoria" in part.columns else part
+        if sub.empty:
+            continue
+        if len(subcategories) > 1:
+            st.caption(f"**{subcat}**")
+
+        chips = []
+        for _, row in sub.iterrows():
+            term_pt = str(row.get("Termo PT", "")).strip()
+            term_en = str(row.get("Termo EN", "")).strip()
+            display = term_pt if term_pt and term_pt.lower() != "nan" else term_en
+            if not display:
+                continue
+            is_match = _profile_term_matches_user(row, user_keywords)
+            cls = "match" if is_match else "normal"
+            typ = row.get("Intensidade 0-10", None)
+            status = str(row.get("Status", ""))
+            intensity = f" · {float(typ):g}/10" if pd.notna(typ) else ""
+            title = f"{term_en} · {status}{intensity}".replace('"', '&quot;')
+            chips.append(
+                f'<span class="bjcp-chip {cls}" title="{title}">{display}{intensity if pd.notna(typ) else ""}</span>'
+            )
+        if chips:
+            st.markdown(" ".join(chips), unsafe_allow_html=True)
+
+
 def _render_style_profile(res, user_keywords):
-    code=res["Código"]
-    category=str(styles.loc[styles["Código"]==code,"Categoria BJCP"].iloc[0]) if not styles.loc[styles["Código"]==code].empty else ""
+    code = str(res["Código"])
+    style_row = styles[styles["Código"].astype(str) == code]
+    category = str(style_row.iloc[0].get("Categoria BJCP", "")) if not style_row.empty else ""
     st.markdown(f"**Categoria BJCP:** {category}")
 
-    prof=_profile_rows_for_style(code)
-    dim_order=["Aroma","Flavor","Mouthfeel","Appearance"]
-    dim_labels={"Aroma":"🌿 Aroma","Flavor":"👅 Sabor","Mouthfeel":"🖐️ Sensação de boca","Appearance":"👁️ Aparência"}
+    prof = _profile_rows_for_style(code)
+    dim_order = ["Aroma", "Flavor", "Mouthfeel", "Appearance"]
+    dim_labels = {
+        "Aroma": "🌿 Aroma",
+        "Flavor": "👅 Sabor",
+        "Mouthfeel": "🖐️ Sensação de boca",
+        "Appearance": "👁️ Aparência",
+    }
 
-    # Keywords do perfil: cinza; as que correspondem ao que o usuário marcou ficam verdes.
-    matched=[]
-    for dim in dim_order:
-        part=prof[prof["Parâmetro"].astype(str)==dim].copy() if not prof.empty and "Parâmetro" in prof.columns else pd.DataFrame()
-        if part.empty: continue
-        chips=[]
-        for _,r in part.iterrows():
-            term_pt=str(r.get("Termo PT", r.get("Termo EN", "")))
-            term_en=str(r.get("Termo EN", ""))
-            status=str(r.get("Status", ""))
-            typ=r.get("Intensidade 0-10", None)
-            is_match=False
-            for u in user_keywords:
-                if u["dim"]==({"Flavor":"Sabor","Mouthfeel":"Sensação de boca","Appearance":"Aparência"}.get(dim,dim)) and _keyword_match(u["term_en"], term_en):
-                    is_match=True
-                    matched.append((u, term_en))
-                    break
-            cls="match" if is_match else "normal"
-            suffix=f" · {float(typ):g}/10" if pd.notna(typ) else ""
-            chips.append(f'<span class="bjcp-chip {cls}" title="{term_en} · {status}">{term_pt}{suffix}</span>')
-        st.markdown(f"**{dim_labels[dim]}**")
-        st.markdown(" ".join(chips), unsafe_allow_html=True)
+    # Mostra TODOS os parâmetros/descritores registrados para o estilo.
+    # Cinza = faz parte do perfil. Verde = também foi informado pelo avaliador.
+    if prof.empty:
+        st.warning("Este estilo não possui perfil sensorial estruturado no banco.")
+    else:
+        for dim in dim_order:
+            part = prof[prof["Parâmetro"].astype(str) == dim].copy()
+            if part.empty:
+                continue
+            st.markdown(f"### {dim_labels[dim]}")
+            _render_profile_chips(part, user_keywords)
 
-    # O que o usuário percebeu e não aparece no perfil daquele estilo.
-    not_in=[]
+    # O que o usuário informou e não aparece em NENHUM descritor do perfil daquele estilo.
+    not_in = []
     for u in user_keywords:
-        dim=u["dim"]
-        part=prof[prof["Parâmetro"].astype(str)==({"Sabor":"Flavor","Sensação de boca":"Mouthfeel","Aparência":"Appearance"}.get(dim,dim))] if not prof.empty else pd.DataFrame()
-        found=False
+        dim = u["dim"]
+        mapped_dim = {"Sabor": "Flavor", "Sensação de boca": "Mouthfeel", "Aparência": "Appearance"}.get(dim, dim)
+        part = prof[prof["Parâmetro"].astype(str) == mapped_dim] if not prof.empty else pd.DataFrame()
+        found = False
         if not part.empty:
-            for _,r in part.iterrows():
-                if _keyword_match(u["term_en"], str(r.get("Termo EN", ""))):
-                    found=True; break
+            for _, row in part.iterrows():
+                if _profile_term_matches_user(row, [u]):
+                    found = True
+                    break
         if not found:
             not_in.append(u)
+
     with st.expander(f"🔴 Não previsto no estilo ({len(not_in)})", expanded=bool(not_in)):
         if not_in:
             for u in not_in:
-                st.markdown(f'<span class="bjcp-not-in">{u["term_pt"]} · {u["value"]}/10</span>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<span class="bjcp-not-in">{u["term_pt"]} · {u["value"]}/10</span>',
+                    unsafe_allow_html=True,
+                )
         else:
             st.caption("Nenhum descritor selecionado ficou fora das palavras-chave estruturadas deste estilo.")
 
-    # Dados técnicos do estilo ficam em uma linha separada.
-    tech_cols=[("OG","OG"),("FG","FG"),("IBU","IBU"),("SRM","SRM"),("ABV","ABV")]
-    tech_parts=[]
-    for label,col in tech_cols:
-        mn=styles.loc[styles["Código"]==code,f"{col} min"]
-        mx=styles.loc[styles["Código"]==code,f"{col} max"]
-        if not mn.empty and not pd.isna(mn.iloc[0]) and not pd.isna(mx.iloc[0]):
+    # Dados técnicos do estilo.
+    tech_cols = [("OG", "OG"), ("FG", "FG"), ("IBU", "IBU"), ("SRM", "SRM"), ("ABV", "ABV")]
+    tech_parts = []
+    for label, col in tech_cols:
+        mn = style_row.get(f"{col} min") if not style_row.empty else None
+        mx = style_row.get(f"{col} max") if not style_row.empty else None
+        if mn is not None and mx is not None and not mn.empty and not pd.isna(mn.iloc[0]) and not pd.isna(mx.iloc[0]):
             tech_parts.append(f"**{label}:** {float(mn.iloc[0]):g}–{float(mx.iloc[0]):g}")
     if tech_parts:
         st.markdown("**📊 Dados técnicos do estilo**")
