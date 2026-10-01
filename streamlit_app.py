@@ -676,12 +676,17 @@ def _fit_row(value, row):
         dist = (lo - val) if val < lo else (val - hi)
         span = max(hi - lo, 1.0)
         return max(0.0, 1.0 - dist / (span * 1.5)), 1.0, "range"
-    # "não especificado" NÃO significa indesejável. Quando há um típico derivado
-    # de descritores, ele serve apenas como referência descritiva fraca para ordenar estilos.
+    # "não especificado" NÃO significa indesejável.
+    # Porém, quando o avaliador INFORMOU explicitamente este descritor,
+    # um valor típico existente no banco precisa participar do matching.
+    # Isso evita que estilos sem referência para o descritor ganhem 100%
+    # simplesmente porque o parâmetro foi ignorado.
     typ = float(row["Typical"])
-    if typ > 0:
-        return max(0.0, 1.0 - abs(val - typ) / 5.0), 0.35, "typical"
-    return None, 0.0, "ignore"
+    # Típico 0 também é informação útil: se o usuário percebe intensidade 3,
+    # um estilo cujo perfil estruturado tem típico 0 deve ficar abaixo de um
+    # estilo cujo típico é 3, mesmo que ambos estejam marcados como
+    # "não especificado".
+    return max(0.0, 1.0 - abs(val - typ) / 5.0), 0.35, "typical"
 
 
 def _score_user_param(pid, value, rr):
