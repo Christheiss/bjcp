@@ -499,7 +499,7 @@ with c1:
 with c2:
     st.metric("Estilos", len(styles))
 
-steps = ["Aroma", "Aparência", "Sabor", "Sensação de boca", "Dados técnicos"]
+steps = ["Aroma", "Aparência", "Sabor", "Sensação de boca", "Dados técnicos", "Resultado"]
 step = st.radio(
     "Etapa da avaliação",
     steps,
@@ -1129,6 +1129,13 @@ elif step == "Dados técnicos":
     if og > 1.000 and fg > 0 and fg < og:
         abv_est = (og - fg) * 131.25
         st.info(f"ABV estimado a partir de OG e FG: **{abv_est:.1f}%**")
+
+    st.divider()
+    st.markdown("### 🔎 Finalizar avaliação")
+    st.caption("Depois de preencher os dados desejados, gere o resultado para comparar sua cerveja com os estilos BJCP.")
+    if st.button("🍺 Gerar os 3 estilos mais próximos", type="primary", use_container_width=True, key="generate_matching"):
+        st.session_state.step = "Resultado"
+        st.rerun()
 
 # -----------------------------
 # RESULTADO
