@@ -842,56 +842,152 @@ if step == "Aroma":
     )
     st.header("AROMA")
     st.markdown("### Intensidade geral")
+    st.caption(
+        "O slider define a intensidade principal. As nuances abaixo apenas identificam "
+        "as percepções que compõem essa intensidade."
+    )
 
-    cols = st.columns(3)
-    for col, (label, key) in zip(
-        cols,
-        [("Lúpulo", "aroma_main_hop"), ("Malte", "aroma_main_malt"),
-         ("Fermentação", "aroma_main_fermentation")]
-    ):
-        with col:
-            value = st.slider(label, 0, 10, int(st.session_state.aroma_main[label]), 1, key=key, on_change=mark_main_evaluated, args=(f"Aroma — {label}",))
-            st.session_state.aroma_main[label] = value
-            st.caption(f"**{value}/10 — {label_intensity(value)}**")
+    # CSS: nuances selecionadas ficam verdes para comunicar "presente".
+    st.markdown("""
+    <style>
+    span[data-baseweb="tag"] {
+        background-color: #238636 !important;
+        color: white !important;
+    }
+    div[data-baseweb="select"]:has(span[data-baseweb="tag"]) {
+        border: 1px solid #238636 !important;
+        box-shadow: 0 0 0 1px rgba(35,134,54,.20) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    st.divider()
-    st.markdown("### Identificar nuances")
-    st.caption("Selecione apenas as características percebidas. A intensidade é definida nos parâmetros principais.")
+    # Mapa de grupos de nuances diretamente ligados aos três parâmetros principais.
+    aroma_groups = {
+        "Lúpulo": "🌿 Lúpulo",
+        "Malte": "🌾 Malte",
+        "Fermentação": "🍺 Fermentação / levedura",
+    }
 
-    if aroma_ui.empty:
-        st.warning("A aba Vocabulario_Aroma_UI não foi encontrada.")
-    else:
-        group_order = [
-            "🌿 Lúpulo", "🌾 Malte", "🍑 Frutado",
-            "🍺 Fermentação / levedura", "🍋 Acidez / fermentação mista",
-            "🪵 Madeira", "💧 Água / mineral", "Brett / Funky",
-            "⚠️ Defeitos / indesejáveis", "🍯 Percepções"
+    def render_aroma_nuance_bar(group):
+        if aroma_ui.empty:
+            return
+        df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
+        if df.empty:
+            return
+
+        options = df["Rótulo_PT"].astype(str).tolist()
+        option_to_id = dict(zip(
+            df["Rótulo_PT"].astype(str),
+            df["Parametro_ID"].astype(str)
+        ))
+        previous = st.session_state.aroma_selected.get(group, [])
+
+        selected = st.multiselect(
+            "Nuances percebidas",
+            options=options,
+            default=[x for x in previous if x in options],
+            key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
+        )
+        st.session_state.aroma_selected[group] = selected
+
+        # Apenas presença. Não há intensidade individual para nuances.
+        for label in selected:
+            pid = option_to_id[label]
+            st.session_state.aroma_values[pid] = 1
+
+    # ---------------------------------------------------------
+    # LÚPULO
+    # ---------------------------------------------------------
+    value = st.slider(
+        "Lúpulo",
+        0, 10,
+        int(st.session_state.aroma_main["Lúpulo"]),
+        1,
+        key="aroma_main_hop",
+        on_change=mark_main_evaluated,
+        args=("Aroma — Lúpulo",)
+    )
+    st.session_state.aroma_main["Lúpulo"] = value
+    st.caption(f"**{value}/10 — {label_intensity(value)}**")
+    render_aroma_nuance_bar(aroma_groups["Lúpulo"])
+
+    st.markdown("<div style='height: 18px'></div>", unsafe_allow_html=True)
+
+    # ---------------------------------------------------------
+    # MALTE
+    # ---------------------------------------------------------
+    value = st.slider(
+        "Malte",
+        0, 10,
+        int(st.session_state.aroma_main["Malte"]),
+        1,
+        key="aroma_main_malt",
+        on_change=mark_main_evaluated,
+        args=("Aroma — Malte",)
+    )
+    st.session_state.aroma_main["Malte"] = value
+    st.caption(f"**{value}/10 — {label_intensity(value)}**")
+    render_aroma_nuance_bar(aroma_groups["Malte"])
+
+    st.markdown("<div style='height: 18px'></div>", unsafe_allow_html=True)
+
+    # ---------------------------------------------------------
+    # FERMENTAÇÃO
+    # ---------------------------------------------------------
+    value = st.slider(
+        "Fermentação",
+        0, 10,
+        int(st.session_state.aroma_main["Fermentação"]),
+        1,
+        key="aroma_main_fermentation",
+        on_change=mark_main_evaluated,
+        args=("Aroma — Fermentação",)
+    )
+    st.session_state.aroma_main["Fermentação"] = value
+    st.caption(f"**{value}/10 — {label_intensity(value)}**")
+    render_aroma_nuance_bar(aroma_groups["Fermentação"])
+
+    # Outros grupos continuam disponíveis abaixo, sem competir visualmente
+    # com os três parâmetros principais.
+    if not aroma_ui.empty:
+        other_groups = [
+            "🍑 Frutado",
+            "🍋 Acidez / fermentação mista",
+            "🪵 Madeira",
+            "💧 Água / mineral",
+            "Brett / Funky",
+            "⚠️ Defeitos / indesejáveis",
+            "🍯 Percepções",
         ]
         existing = set(aroma_ui["Grupo_UI"].dropna().astype(str))
-        group_order += sorted(existing - set(group_order))
+        other_groups += sorted(
+            existing - set(aroma_groups.values()) - set(other_groups)
+        )
 
-        for group in group_order:
-            df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
-            if df.empty:
-                continue
-            options = df["Rótulo_PT"].astype(str).tolist()
-            option_to_id = dict(zip(df["Rótulo_PT"].astype(str), df["Parametro_ID"].astype(str)))
-            previous = st.session_state.aroma_selected.get(group, [])
+        if other_groups:
+            st.divider()
+            st.markdown("### Outras percepções")
+            for group in other_groups:
+                df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
+                if df.empty:
+                    continue
+                options = df["Rótulo_PT"].astype(str).tolist()
+                option_to_id = dict(zip(
+                    df["Rótulo_PT"].astype(str),
+                    df["Parametro_ID"].astype(str)
+                ))
+                previous = st.session_state.aroma_selected.get(group, [])
 
-            with st.expander(f"{group} · {len(options)} descritores"):
-                selected = st.multiselect(
-                    "Nuances percebidas",
-                    options=options,
-                    default=[x for x in previous if x in options],
-                    key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
-                )
-                st.session_state.aroma_selected[group] = selected
-
-                # Nuances = presença/ausência. A intensidade é medida no slider principal.
-                for label in selected:
-                    pid = option_to_id[label]
-                    st.session_state.aroma_values[pid] = 1
-                    st.caption("✓ Presente")
+                with st.expander(f"{group} · {len(options)} descritores"):
+                    selected = st.multiselect(
+                        "Nuances percebidas",
+                        options=options,
+                        default=[x for x in previous if x in options],
+                        key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
+                    )
+                    st.session_state.aroma_selected[group] = selected
+                    for label in selected:
+                        st.session_state.aroma_values[option_to_id[label]] = 1
 
 # -----------------------------
 # APARÊNCIA
