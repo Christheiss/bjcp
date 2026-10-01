@@ -137,6 +137,106 @@ def color_swatch(hex_color, label):
         unsafe_allow_html=True,
     )
 
+def foam_hex_from_name(name):
+    colors = {
+        "espuma branca": "#F8F8F3",
+        "branco": "#F8F8F3",
+        "branco quebrado": "#F2EBDD",
+        "espuma branco-quebrada": "#F2EBDD",
+        "bege / castanho claro": "#D8C49A",
+        "bege claro": "#E2D2AA",
+        "bege pálido": "#E9DCC0",
+        "espuma bege clara": "#E2D2AA",
+        "bege": "#D4BF91",
+        "espuma bege pálida": "#E9DCC0",
+    }
+    return colors.get(str(name).strip().lower(), "#F8F8F3")
+
+def beer_glass_svg(srm, foam_size, foam_color_name):
+    """Desenha um copo estilizado e dinâmico para a avaliação visual."""
+    beer_color = srm_sample_hex(srm) if srm > 0 else "#E8E8E8"
+    foam_color = foam_hex_from_name(foam_color_name)
+
+    # Área interna do copo: x=82..238, y=36..300.
+    # Foam size controla diretamente a altura do colarinho.
+    max_foam = 92
+    min_foam = 8
+    foam_h = min_foam + (max_foam - min_foam) * (foam_size / 10.0)
+    beer_top = 300 - foam_h
+
+    # Bolhas decorativas; não representam carbonatação medida.
+    bubble_y = beer_top + foam_h * 0.45
+
+    return f"""
+    <div style="display:flex;justify-content:center;margin:10px 0 18px 0;">
+      <svg viewBox="0 0 320 360" width="100%" style="max-width:320px;height:auto;">
+        <defs>
+          <linearGradient id="glassBeer" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="{beer_color}" stop-opacity="0.88"/>
+            <stop offset="100%" stop-color="{beer_color}" stop-opacity="1"/>
+          </linearGradient>
+          <linearGradient id="glassFoam" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="{foam_color}" stop-opacity="0.98"/>
+            <stop offset="100%" stop-color="{foam_color}" stop-opacity="0.92"/>
+          </linearGradient>
+          <clipPath id="glassClip">
+            <path d="M72 38 L248 38 L230 306 Q228 320 214 320 L106 320 Q92 320 90 306 Z"/>
+          </clipPath>
+        </defs>
+
+        <!-- Líquido -->
+        <g clip-path="url(#glassClip)">
+          <rect x="80" y="{beer_top:.1f}" width="160" height="{300-beer_top:.1f}" fill="url(#glassBeer)"/>
+
+          <!-- Colarinho -->
+          <rect x="80" y="36" width="160" height="{foam_h:.1f}" fill="url(#glassFoam)"/>
+
+          <!-- Topo irregular da espuma -->
+          <path d="M80 {beer_top:.1f}
+                   C96 {beer_top-8:.1f}, 104 {beer_top+5:.1f}, 118 {beer_top-3:.1f}
+                   C132 {beer_top-11:.1f}, 144 {beer_top+4:.1f}, 158 {beer_top-4:.1f}
+                   C174 {beer_top-13:.1f}, 188 {beer_top+6:.1f}, 202 {beer_top-2:.1f}
+                   C218 {beer_top-8:.1f}, 228 {beer_top+3:.1f}, 240 {beer_top:.1f}
+                   L240 36 L80 36 Z"
+                fill="{foam_color}"/>
+
+          <!-- Bolhas sutis na espuma -->
+          <g fill="none" stroke="#ffffff" stroke-opacity="0.42" stroke-width="2">
+            <circle cx="108" cy="{bubble_y-8:.1f}" r="4"/>
+            <circle cx="136" cy="{bubble_y+5:.1f}" r="3"/>
+            <circle cx="170" cy="{bubble_y-5:.1f}" r="5"/>
+            <circle cx="204" cy="{bubble_y+7:.1f}" r="3"/>
+          </g>
+        </g>
+
+        <!-- Contorno do copo -->
+        <path d="M72 38 L248 38 L230 306 Q228 320 214 320 L106 320 Q92 320 90 306 Z"
+              fill="rgba(255,255,255,0.035)"
+              stroke="rgba(220,230,235,0.72)"
+              stroke-width="4"/>
+
+        <!-- Borda -->
+        <path d="M68 38 Q160 30 252 38" fill="none"
+              stroke="rgba(220,230,235,0.85)" stroke-width="5"/>
+
+        <!-- Reflexo -->
+        <path d="M92 55 L106 286" stroke="white" stroke-opacity="0.22" stroke-width="7"
+              stroke-linecap="round"/>
+
+        <!-- Base -->
+        <path d="M98 320 L222 320 L238 335 L82 335 Z"
+              fill="rgba(220,230,235,0.10)"
+              stroke="rgba(220,230,235,0.55)" stroke-width="3"/>
+
+        <!-- Informação -->
+        <text x="160" y="355" text-anchor="middle"
+              fill="currentColor" font-size="15" font-family="sans-serif">
+          SRM {srm:g} · {foam_size}/10 espuma
+        </text>
+      </svg>
+    </div>
+    """
+
 # -----------------------------
 # Estado
 # -----------------------------
@@ -268,11 +368,9 @@ else:
     )
     st.header("APARÊNCIA")
 
-    # Cor
-    st.markdown("### 🎨 Cor")
+    # Cor + copo visual
+    st.markdown("### 🎨 Aparência do copo")
 
-    # O avaliador escolhe apenas o SRM. A amostra visual e o nome
-    # da cor aparecem automaticamente.
     srm = st.number_input(
         "SRM",
         min_value=0.0,
@@ -282,74 +380,6 @@ else:
         key="appearance_srm_input",
     )
     st.session_state.appearance_srm = srm if srm > 0 else None
-
-    def color_name_from_srm(value):
-        if value <= 0:
-            return "Sem cor informada"
-
-        ranges = [
-            ("Palha", 2, 3),
-            ("Amarelo", 3, 4),
-            ("Dourado", 5, 6),
-            ("Âmbar", 6, 9),
-            ("Âmbar profundo / cobre claro", 10, 14),
-            ("Cobre", 14, 17),
-            ("Cobre profundo / marrom claro", 17, 18),
-            ("Marrom", 19, 22),
-            ("Marrom escuro", 22, 30),
-            ("Muito marrom escuro", 30, 35),
-            ("Preto", 30, 40),
-            ("Preto opaco", 40, 50),
-        ]
-
-        candidates = [
-            (name, low, high, abs(value - ((low + high) / 2)))
-            for name, low, high in ranges
-            if low <= value <= high
-        ]
-
-        if candidates:
-            return min(candidates, key=lambda x: x[3])[0]
-        if value < 2:
-            return "Mais claro que palha"
-        return "Mais escuro que preto opaco"
-
-    if srm > 0:
-        color_name = color_name_from_srm(srm)
-        sample_hex = srm_sample_hex(srm)
-
-        color_swatch(
-            sample_hex,
-            f"SRM {srm:g} · {color_name}"
-        )
-
-        st.markdown(f"### {color_name}")
-        st.caption(
-            "Nome aproximado a partir da referência de cor do BJCP. "
-            "A percepção visual pode variar conforme iluminação, recipiente e observador."
-        )
-    else:
-        st.caption("Escolha o SRM para visualizar a cor e o nome correspondente.")
-
-    st.markdown("### 🔎 Clareza e turbidez")
-    c1, c2 = st.columns(2)
-    with c1:
-        v = st.slider(
-            "Limpidez",
-            0, 10, int(st.session_state.appearance_main["Limpidez"]), 1,
-            key="appearance_clarity"
-        )
-        st.session_state.appearance_main["Limpidez"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
-        st.caption("0 = opaca · 10 = cristalina")
-    with c2:
-        v = st.slider(
-            "Turbidez / haze",
-            0, 10, int(st.session_state.appearance_main["Turbidez"]), 1,
-            key="appearance_haze"
-        )
-        st.session_state.appearance_main["Turbidez"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
 
     st.divider()
 
