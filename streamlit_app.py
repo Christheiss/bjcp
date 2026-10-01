@@ -44,6 +44,7 @@ categories = db.get("Categorias_Parametros", pd.DataFrame())
 references = db.get("Valores_Referencia_BJCP", pd.DataFrame())
 aroma_ui = db.get("Vocabulario_Aroma_UI", pd.DataFrame())
 appearance_ui = db.get("Vocabulario_Aparencia_UI", pd.DataFrame())
+flavor_ui = db.get("Vocabulario_Sabor_UI", pd.DataFrame())
 intensity_df = db.get("Escala_Intensidade_BJCP", pd.DataFrame())
 srm_df = db.get("Referencia_Cor_SRM", pd.DataFrame())
 appearance_scale = db.get("Escala_Aparencia_UI", pd.DataFrame())
@@ -458,6 +459,18 @@ if "appearance_srm" not in st.session_state:
 if "appearance_last_color" not in st.session_state:
     st.session_state.appearance_last_color = ""
 
+if "flavor_main" not in st.session_state:
+    st.session_state.flavor_main = {
+        "Lúpulo": 0, "Malte": 0, "Fermentação": 0,
+        "Amargor": 0, "Doçura": 0, "Acidez": 0, "Álcool": 0
+    }
+if "flavor_selected" not in st.session_state:
+    st.session_state.flavor_selected = {}
+if "flavor_values" not in st.session_state:
+    st.session_state.flavor_values = {}
+if "flavor_balance" not in st.session_state:
+    st.session_state.flavor_balance = {"Malte ↔ Lúpulo": 5, "Doce ↔ Seco": 5}
+
 # -----------------------------
 # Header
 # -----------------------------
@@ -470,17 +483,18 @@ with c1:
 with c2:
     st.metric("Estilos", len(styles))
 
+steps = ["Aroma", "Aparência", "Sabor"]
 step = st.radio(
     "Etapa da avaliação",
-    ["Aroma", "Aparência"],
-    index=0 if st.session_state.step == "Aroma" else 1,
+    steps,
+    index=steps.index(st.session_state.step) if st.session_state.step in steps else 0,
     horizontal=True,
     key="step_selector",
 )
 st.session_state.step = step
 
-progress = 0.20 if step == "Aroma" else 0.40
-st.progress(progress, text=f"Etapa {'1' if step == 'Aroma' else '2'} de 5 — {step}")
+step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3}[step]
+st.progress(step_num / 5, text=f"Etapa {step_num} de 5 — {step}")
 
 # -----------------------------
 # AROMA
@@ -547,7 +561,7 @@ if step == "Aroma":
 # -----------------------------
 # APARÊNCIA
 # -----------------------------
-else:
+elif step == "Aparência":
     st.info(
         "Na Aparência, alguns atributos são categóricos (como a cor) e outros "
         "podem ser registrados em intensidade. O SRM é uma referência de densidade "
@@ -698,8 +712,130 @@ else:
     c1.metric("Limpidez", f"{st.session_state.appearance_main['Limpidez']}/10")
     c2.metric("Espuma", f"{st.session_state.appearance_main['Formação da espuma']}/10")
     c3.metric("Retenção", f"{st.session_state.appearance_main['Retenção da espuma']}/10")
+# -----------------------------
+# SABOR
+# -----------------------------
+elif step == "Sabor":
+    st.info(
+        "A escala 0–10 é uma normalização operacional do aplicativo. "
+        "Os rótulos aproximam a linguagem descritiva usada nas diretrizes BJCP; "
+        "não representam uma escala numérica oficial."
+    )
+    st.header("SABOR")
+
+    st.markdown("### Intensidades principais")
+    main_cols = st.columns(4)
+    flavor_main_items = [
+        ("Lúpulo", "flavor_main_hop"),
+        ("Malte", "flavor_main_malt"),
+        ("Fermentação", "flavor_main_ferm"),
+        ("Amargor", "flavor_main_bitterness"),
+        ("Doçura", "flavor_main_sweetness"),
+        ("Acidez", "flavor_main_acidity"),
+        ("Álcool", "flavor_main_alcohol"),
+    ]
+
+    for i, (label, key) in enumerate(flavor_main_items):
+        with main_cols[i % 4]:
+            value = st.slider(
+                label, 0, 10, int(st.session_state.flavor_main[label]), 1, key=key
+            )
+            st.session_state.flavor_main[label] = value
+            st.caption(f"**{value}/10 — {label_intensity(value)}**")
+
+    st.divider()
+
+    st.markdown("### ⚖️ Equilíbrio")
+    b1, b2 = st.columns(2)
+    with b1:
+        value = st.slider(
+            "Malte  ◀────────▶  Lúpulo",
+            0, 10,
+            int(st.session_state.flavor_balance["Malte ↔ Lúpulo"]),
+            1,
+            key="flavor_balance_malt_hop",
+        )
+        st.session_state.flavor_balance["Malte ↔ Lúpulo"] = value
+        side = "Malte" if value < 5 else ("Lúpulo" if value > 5 else "Equilibrado")
+        st.caption(f"**{value}/10 — {side}**")
+    with b2:
+        value = st.slider(
+            "Doce  ◀────────▶  Seco",
+            0, 10,
+            int(st.session_state.flavor_balance["Doce ↔ Seco"]),
+            1,
+            key="flavor_balance_sweet_dry",
+        )
+        st.session_state.flavor_balance["Doce ↔ Seco"] = value
+        side = "Doce" if value < 5 else ("Seco" if value > 5 else "Equilibrado")
+        st.caption(f"**{value}/10 — {side}**")
+
+    st.divider()
+
+    st.markdown("### Identificar sabores e características")
+    st.caption(
+        "Selecione somente o que você percebe. Cada característica selecionada "
+        "pode receber sua própria intensidade."
+    )
+
+    if flavor_ui.empty:
+        st.warning("A aba Vocabulario_Sabor_UI não foi encontrada no banco.")
+    else:
+        group_order = [
+            "🌾 Malte",
+            "🌿 Lúpulo",
+            "🍑 Frutado",
+            "🍺 Fermentação / levedura",
+            "🍋 Acidez",
+            "🔥 Álcool",
+            "🌿 Taninos",
+            "🦠 Brett / Funky",
+            "⚖️ Equilíbrio / percepção",
+            "⚠️ Defeitos / indesejáveis",
+            "✨ Qualidade / impressão geral",
+        ]
+        existing_groups = set(flavor_ui["Grupo_UI"].dropna().astype(str))
+        group_order += sorted(existing_groups - set(group_order))
+
+        for group in group_order:
+            df = flavor_ui[flavor_ui["Grupo_UI"] == group].copy()
+            if df.empty:
+                continue
+
+            options = df["Rótulo_PT"].astype(str).tolist()
+            id_map = dict(zip(df["Rótulo_PT"].astype(str), df["Sabor_ID"].astype(str)))
+            previous = st.session_state.flavor_selected.get(group, [])
+
+            with st.expander(f"{group} · {len(options)} descritores"):
+                selected = st.multiselect(
+                    "Características percebidas",
+                    options=options,
+                    default=[x for x in previous if x in options],
+                    key=f"flavor_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}",
+                    placeholder="Selecione uma ou mais..."
+                )
+                st.session_state.flavor_selected[group] = selected
+
+                for label in selected:
+                    sid = id_map[label]
+                    value = st.session_state.flavor_values.get(sid, 0)
+                    value = st.slider(
+                        label, 0, 10, int(value), 1,
+                        key=f"flavor_n_{sid}"
+                    )
+                    st.session_state.flavor_values[sid] = value
+                    st.caption(f"{value}/10 — {label_intensity(value)}")
+
+    st.divider()
+    st.subheader("Resumo do Sabor")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Amargor", f"{st.session_state.flavor_main['Amargor']}/10")
+    c2.metric("Doçura", f"{st.session_state.flavor_main['Doçura']}/10")
+    c3.metric("Acidez", f"{st.session_state.flavor_main['Acidez']}/10")
+
 
 st.caption(
     f"Banco: {len(styles)} estilos · {len(references)} referências · "
-    f"{len(aroma_ui)} descritores de aroma · {len(appearance_ui)} descritores de aparência"
+    f"{len(aroma_ui)} descritores de aroma · {len(appearance_ui)} descritores de aparência · "
+    f"{len(flavor_ui)} descritores de sabor"
 )
