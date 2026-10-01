@@ -293,7 +293,12 @@ else:
         st.session_state.appearance_color = chosen_color
 
         if chosen_color:
-            cr = color_ref[color_ref["Descrição_PT"].str.lower() == chosen_color.lower()]
+            # A tabela Referencia_Cor_SRM contém o nome da cor e o
+            # SRM representativo usado para preencher automaticamente o campo.
+            cr = srm_df[
+                srm_df["Descrição"].astype(str).str.strip().str.lower()
+                == chosen_color.strip().lower()
+            ]
             if not cr.empty:
                 srm_rep = float(cr.iloc[0]["SRM_representativo"])
                 ref_srm = str(cr.iloc[0]["SRM"])
