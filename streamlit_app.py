@@ -710,8 +710,14 @@ def _score_user_param(pid, value, rr):
         if fit is None:
             continue
         fits.append((fit, weight))
-        if str(row["Status"]) == "esperado" and float(row["Típico"]) > 0 and float(value) < float(row["Típico"]) - 1:
-            missing.append((str(row["Parametro_ID"]), float(row["Típico"]), float(value)))
+        status = str(row.get("Status", ""))
+        typical = row.get("Typical", row.get("Típico", 0))
+        try:
+            typical = float(typical)
+        except (TypeError, ValueError):
+            typical = 0.0
+        if status == "esperado" and typical > 0 and float(value) < typical - 1:
+            missing.append((str(row.get("Parametro_ID", "")), typical, float(value)))
     if not fits:
         return None, missing, []
     # Para um eixo principal que reúne várias nuances, usa a média ponderada das referências disponíveis.
