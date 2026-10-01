@@ -333,7 +333,9 @@ def render_beer_glass(srm, foam_size, foam_color):
     # deixando a parte superior do copo vazia.
     glass_top = 35
     glass_bottom = 365
-    liquid_top = 265
+    # A cerveja ocupa aproximadamente 2/3 da altura útil do copo.
+    # Esse nível fica fixo; o colarinho cresce acima dele.
+    liquid_top = glass_bottom - ((glass_bottom - glass_top) * 2 / 3)
     max_head_h = liquid_top - glass_top
     head_h = (float(foam_size) / 10.0) * max_head_h
     foam_top = liquid_top - head_h
