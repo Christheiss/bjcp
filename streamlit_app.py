@@ -45,6 +45,7 @@ references = db.get("Valores_Referencia_BJCP", pd.DataFrame())
 aroma_ui = db.get("Vocabulario_Aroma_UI", pd.DataFrame())
 appearance_ui = db.get("Vocabulario_Aparencia_UI", pd.DataFrame())
 flavor_ui = db.get("Vocabulario_Sabor_UI", pd.DataFrame())
+mouthfeel_ui = db.get("Vocabulario_Sensacao_Boca_UI", pd.DataFrame())
 intensity_df = db.get("Escala_Intensidade_BJCP", pd.DataFrame())
 srm_df = db.get("Referencia_Cor_SRM", pd.DataFrame())
 appearance_scale = db.get("Escala_Aparencia_UI", pd.DataFrame())
@@ -471,6 +472,21 @@ if "flavor_values" not in st.session_state:
 if "flavor_balance" not in st.session_state:
     st.session_state.flavor_balance = {"Malte ↔ Lúpulo": 5, "Doce ↔ Seco": 5}
 
+if "mouth_main" not in st.session_state:
+    st.session_state.mouth_main = {
+        "Corpo": 5,
+        "Carbonatação": 5,
+        "Adstringência": 0,
+        "Aquecimento alcoólico": 0,
+        "Textura / viscosidade": 0,
+    }
+if "mouth_selected" not in st.session_state:
+    st.session_state.mouth_selected = {}
+if "mouth_values" not in st.session_state:
+    st.session_state.mouth_values = {}
+if "mouth_finish" not in st.session_state:
+    st.session_state.mouth_finish = 5
+
 # -----------------------------
 # Header
 # -----------------------------
@@ -483,7 +499,7 @@ with c1:
 with c2:
     st.metric("Estilos", len(styles))
 
-steps = ["Aroma", "Aparência", "Sabor"]
+steps = ["Aroma", "Aparência", "Sabor", "Sensação de boca"]
 step = st.radio(
     "Etapa da avaliação",
     steps,
@@ -493,7 +509,7 @@ step = st.radio(
 )
 st.session_state.step = step
 
-step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3}[step]
+step_num = {"Aroma": 1, "Aparência": 2, "Sabor": 3, "Sensação de boca": 4}[step]
 st.progress(step_num / 5, text=f"Etapa {step_num} de 5 — {step}")
 
 # -----------------------------
@@ -834,8 +850,123 @@ elif step == "Sabor":
     c3.metric("Acidez", f"{st.session_state.flavor_main['Acidez']}/10")
 
 
+
+# -----------------------------
+# SENSAÇÃO DE BOCA
+# -----------------------------
+elif step == "Sensação de boca":
+    st.info(
+        "A sensação de boca descreve como a cerveja se comporta fisicamente "
+        "na boca: corpo, carbonatação, textura, adstringência, aquecimento "
+        "alcoólico e características do final."
+    )
+    st.header("SENSAÇÃO DE BOCA")
+
+    st.markdown("### Intensidades principais")
+
+    items = [
+        ("Corpo", "mouth_body"),
+        ("Carbonatação", "mouth_carbonation"),
+        ("Adstringência", "mouth_astringency"),
+        ("Aquecimento alcoólico", "mouth_warmth"),
+        ("Textura / viscosidade", "mouth_texture"),
+    ]
+
+    cols = st.columns(3)
+    for i, (label, key) in enumerate(items):
+        with cols[i % 3]:
+            value = st.slider(
+                label,
+                0, 10,
+                int(st.session_state.mouth_main[label]),
+                1,
+                key=key,
+            )
+            st.session_state.mouth_main[label] = value
+            st.caption(f"**{value}/10 — {label_intensity(value, True)}**")
+
+    st.divider()
+
+    st.markdown("### 🏁 Final")
+    finish = st.slider(
+        "Doce  ◀────────▶  Seco",
+        0, 10,
+        int(st.session_state.mouth_finish),
+        1,
+        key="mouth_finish_balance",
+    )
+    st.session_state.mouth_finish = finish
+    finish_label = "Doce" if finish < 5 else ("Seco" if finish > 5 else "Equilibrado")
+    st.caption(f"**{finish}/10 — {finish_label}**")
+
+    st.divider()
+
+    st.markdown("### Identificar características")
+    st.caption(
+        "Selecione somente as sensações percebidas. "
+        "Cada característica selecionada pode receber sua própria intensidade."
+    )
+
+    if mouthfeel_ui.empty:
+        st.warning("A aba Vocabulario_Sensacao_Boca_UI não foi encontrada no banco.")
+    else:
+        groups = [
+            "⚖️ Corpo",
+            "🫧 Carbonatação",
+            "🖐️ Textura",
+            "✋ Sensação tátil",
+            "🔥 Álcool",
+            "🏁 Final",
+            "👄 Percepção geral",
+            "⚠️ Defeitos / indesejáveis",
+        ]
+        existing = set(mouthfeel_ui["Grupo_UI"].dropna().astype(str))
+        groups += sorted(existing - set(groups))
+
+        for group in groups:
+            df = mouthfeel_ui[mouthfeel_ui["Grupo_UI"] == group].copy()
+            if df.empty:
+                continue
+
+            options = df["Rótulo_PT"].astype(str).tolist()
+            id_map = dict(zip(
+                df["Rótulo_PT"].astype(str),
+                df["Sensacao_Boca_ID"].astype(str)
+            ))
+            previous = st.session_state.mouth_selected.get(group, [])
+
+            with st.expander(f"{group} · {len(options)} descritores"):
+                selected = st.multiselect(
+                    "Sensações percebidas",
+                    options=options,
+                    default=[x for x in previous if x in options],
+                    key=f"mouth_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}",
+                    placeholder="Selecione uma ou mais..."
+                )
+                st.session_state.mouth_selected[group] = selected
+
+                for label in selected:
+                    mid = id_map[label]
+                    value = st.session_state.mouth_values.get(mid, 0)
+                    value = st.slider(
+                        label,
+                        0, 10,
+                        int(value),
+                        1,
+                        key=f"mouth_n_{mid}",
+                    )
+                    st.session_state.mouth_values[mid] = value
+                    st.caption(f"{value}/10 — {label_intensity(value, True)}")
+
+    st.divider()
+    st.subheader("Resumo da Sensação de Boca")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Corpo", f"{st.session_state.mouth_main['Corpo']}/10")
+    c2.metric("Carbonatação", f"{st.session_state.mouth_main['Carbonatação']}/10")
+    c3.metric("Adstringência", f"{st.session_state.mouth_main['Adstringência']}/10")
+
 st.caption(
     f"Banco: {len(styles)} estilos · {len(references)} referências · "
     f"{len(aroma_ui)} descritores de aroma · {len(appearance_ui)} descritores de aparência · "
-    f"{len(flavor_ui)} descritores de sabor"
+    f"{len(flavor_ui)} descritores de sabor · {len(mouthfeel_ui)} descritores de boca"
 )
