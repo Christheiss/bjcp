@@ -11,6 +11,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Estilo dos chips do perfil BJCP
+st.markdown("""
+<style>
+.bjcp-chip{display:inline-block;padding:4px 8px;margin:3px 3px 3px 0;border-radius:12px;background:#343740;color:#c9cbd1;font-size:0.88rem;border:1px solid #454852;}
+.bjcp-chip.match{background:#173d2b;color:#7ff0a8;border-color:#2d8a57;font-weight:600;}
+.bjcp-not-in{display:inline-block;padding:6px 10px;margin:3px;border-radius:12px;background:#4a1f27;color:#ff7b88;border:1px solid #8e3342;font-weight:600;}
+</style>
+""", unsafe_allow_html=True)
+
 DB_PATH = Path("data/bjcp_database.xlsx")
 
 @st.cache_data
@@ -42,6 +51,7 @@ if db_error:
 styles = db.get("Estilos", pd.DataFrame())
 categories = db.get("Categorias_Parametros", pd.DataFrame())
 references = db.get("Valores_Referencia_BJCP", pd.DataFrame())
+profile_df = db.get("Perfil_Sensorial", db.get("Perfil_Vocabulario", pd.DataFrame()))
 aroma_ui = db.get("Vocabulario_Aroma_UI", pd.DataFrame())
 appearance_ui = db.get("Vocabulario_Aparencia_UI", pd.DataFrame())
 flavor_ui = db.get("Vocabulario_Sabor_UI", pd.DataFrame())
@@ -1268,33 +1278,180 @@ elif step == "Dados técnicos":
 # -----------------------------
 # RESULTADO
 # -----------------------------
-elif step == "Resultado":
+def _norm_text(value):
+    import unicodedata
+    txt = unicodedata.normalize("NFKD", str(value).lower()).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", txt).strip()
+
+
+def _keyword_aliases(term):
+    """Aliases simples para aproximar variações morfológicas e descritores agrupados."""
+    t = _norm_text(term)
+    aliases = {t}
+    alias_map = {
+        "bread biscuit toast": ["bread", "bready", "biscuit", "biscuity", "toast", "toasty"],
+        "bread biscuit toast": ["bread", "bready", "biscuit", "biscuity", "toast", "toasty"],
+        "roast chocolate coffee": ["roast", "roasty", "chocolate", "cocoa", "coffee", "roasted"],
+        "caramel toffee": ["caramel", "toffee"],
+        "grain corn": ["grain", "grainy", "corn", "corny", "corn like"],
+        "phenolic spice": ["phenolic", "phenols", "spicy", "spice", "clove"],
+        "sour acid": ["sour", "acid", "acidity", "tart"],
+        "wood oak": ["wood", "oak", "woody"],
+        "fruit": ["fruit", "fruity", "esters", "ester"],
+        "esters": ["esters", "ester", "fruity", "fruit"],
+        "hop aroma": ["hop", "hop aroma", "hoppy"],
+        "hop flavor": ["hop flavor", "hoppy", "hop"],
+        "alcohol": ["alcohol", "alcohol aroma", "alcohol flavor"],
+        "dryness": ["dry", "dryness", "dry finish", "crisp"],
+        "sweetness": ["sweet", "sweetness", "malty sweetness"],
+        "astringency": ["astringency", "astringent", "tannic", "tannins"],
+        "carbonation": ["carbonation", "high carbonation", "highly carbonated", "carbonic bite"],
+        "body": ["body", "light body", "medium body", "medium light body", "full body", "full"],
+        "creaminess smoothness": ["creamy", "smooth", "silky", "soft"],
+        "viscosity": ["viscous", "viscosity", "syrupy", "thick", "ropy"],
+        "crispness": ["crisp", "crispness", "crisp finish"],
+        "alcohol warmth": ["alcohol warmth", "warming", "warmth"],
+        "color": ["color", "straw", "pale straw", "yellow", "pale yellow", "gold", "golden", "amber", "copper", "brown", "black", "deep"],
+        "clarity": ["clear", "clarity", "crystal clear", "good clarity", "brilliant"],
+        "head size": ["head", "frothy head", "white head", "foam", "head size"],
+        "head retention": ["persistent", "lasting", "head retention"],
+        "haze": ["hazy", "haze", "cloudy", "turbid"],
+    }
+    for key, vals in alias_map.items():
+        if t == key:
+            aliases.update(_norm_text(v) for v in vals)
+    return aliases
+
+
+def _profile_rows_for_style(code):
+    if profile_df.empty:
+        return pd.DataFrame()
+    d = profile_df[profile_df["Código"].astype(str) == str(code)].copy()
+    if d.empty:
+        return d
+    # O Perfil_Vocabulario é a camada de palavras-chave extraídas das descrições BJCP.
+    return d.drop_duplicates(subset=["Parâmetro", "Termo EN", "Termo PT"])
+
+
+def _user_keywords():
+    """Descritores realmente selecionados pelo usuário, com dimensão e intensidade."""
+    out=[]
+    for label_map, values, sheet, dim in [
+        (st.session_state.get("aroma_selected", {}), st.session_state.get("aroma_values", {}), aroma_ui, "Aroma"),
+        (st.session_state.get("flavor_selected", {}), st.session_state.get("flavor_values", {}), flavor_ui, "Flavor"),
+        (st.session_state.get("mouth_selected", {}), st.session_state.get("mouth_values", {}), mouthfeel_ui, "Mouthfeel"),
+        (st.session_state.get("appearance_selected", {}), st.session_state.get("appearance_values", {}), appearance_ui, "Appearance"),
+    ]:
+        if sheet.empty:
+            continue
+        id_col={"Aroma":"Parametro_ID","Flavor":"Sabor_ID","Mouthfeel":"Sensacao_Boca_ID","Appearance":"Aparencia_ID"}[dim]
+        for group, labels in label_map.items():
+            df=sheet[sheet["Grupo_UI"].astype(str)==str(group)] if "Grupo_UI" in sheet.columns else sheet
+            for label in labels:
+                row=df[df["Rótulo_PT"].astype(str)==str(label)]
+                if row.empty: continue
+                r=row.iloc[0]
+                out.append({
+                    "dim": "Sabor" if dim=="Flavor" else ("Sensação de boca" if dim=="Mouthfeel" else ("Aparência" if dim=="Appearance" else "Aroma")),
+                    "term_en": str(r.get("Termo_EN", "")),
+                    "term_pt": str(r.get("Rótulo_PT", label)),
+                    "value": int(values.get(str(r[id_col]), 0)),
+                    "pid": _canonical_pid_from_ui(dim, r),
+                })
+    return out
+
+
+def _keyword_match(selected_term, profile_term):
+    a=_keyword_aliases(selected_term)
+    b=_keyword_aliases(profile_term)
+    if _norm_text(selected_term)==_norm_text(profile_term):
+        return True
+    for x in a:
+        if x and x in b:
+            return True
+    # stem-like fallback for simple singular/plural forms
+    toks_a={x.rstrip("s") for x in _norm_text(selected_term).split() if len(x)>3}
+    toks_b={x.rstrip("s") for x in _norm_text(profile_term).split() if len(x)>3}
+    return bool(toks_a & toks_b)
+
+
+def _render_style_profile(res, user_keywords):
+    code=res["Código"]
+    category=str(styles.loc[styles["Código"]==code,"Categoria BJCP"].iloc[0]) if not styles.loc[styles["Código"]==code].empty else ""
+    st.markdown(f"**Categoria BJCP:** {category}")
+
+    prof=_profile_rows_for_style(code)
+    dim_order=["Aroma","Flavor","Mouthfeel","Appearance"]
+    dim_labels={"Aroma":"🌿 Aroma","Flavor":"👅 Sabor","Mouthfeel":"🖐️ Sensação de boca","Appearance":"👁️ Aparência"}
+
+    # Keywords do perfil: cinza; as que correspondem ao que o usuário marcou ficam verdes.
+    matched=[]
+    for dim in dim_order:
+        part=prof[prof["Parâmetro"].astype(str)==dim].copy() if not prof.empty and "Parâmetro" in prof.columns else pd.DataFrame()
+        if part.empty: continue
+        chips=[]
+        for _,r in part.iterrows():
+            term_pt=str(r.get("Termo PT", r.get("Termo EN", "")))
+            term_en=str(r.get("Termo EN", ""))
+            status=str(r.get("Status", ""))
+            typ=r.get("Intensidade 0-10", None)
+            is_match=False
+            for u in user_keywords:
+                if u["dim"]==({"Flavor":"Sabor","Mouthfeel":"Sensação de boca","Appearance":"Aparência"}.get(dim,dim)) and _keyword_match(u["term_en"], term_en):
+                    is_match=True
+                    matched.append((u, term_en))
+                    break
+            cls="match" if is_match else "normal"
+            suffix=f" · {float(typ):g}/10" if pd.notna(typ) else ""
+            chips.append(f'<span class="bjcp-chip {cls}" title="{term_en} · {status}">{term_pt}{suffix}</span>')
+        st.markdown(f"**{dim_labels[dim]}**")
+        st.markdown(" ".join(chips), unsafe_allow_html=True)
+
+    # O que o usuário percebeu e não aparece no perfil daquele estilo.
+    not_in=[]
+    for u in user_keywords:
+        dim=u["dim"]
+        part=prof[prof["Parâmetro"].astype(str)==({"Sabor":"Flavor","Sensação de boca":"Mouthfeel","Aparência":"Appearance"}.get(dim,dim))] if not prof.empty else pd.DataFrame()
+        found=False
+        if not part.empty:
+            for _,r in part.iterrows():
+                if _keyword_match(u["term_en"], str(r.get("Termo EN", ""))):
+                    found=True; break
+        if not found:
+            not_in.append(u)
+    with st.expander(f"🔴 Não previsto no estilo ({len(not_in)})", expanded=bool(not_in)):
+        if not_in:
+            for u in not_in:
+                st.markdown(f'<span class="bjcp-not-in">{u["term_pt"]} · {u["value"]}/10</span>', unsafe_allow_html=True)
+        else:
+            st.caption("Nenhum descritor selecionado ficou fora das palavras-chave estruturadas deste estilo.")
+
+    # Dados técnicos do estilo ficam em uma linha separada.
+    tech_cols=[("OG","OG"),("FG","FG"),("IBU","IBU"),("SRM","SRM"),("ABV","ABV")]
+    tech_parts=[]
+    for label,col in tech_cols:
+        mn=styles.loc[styles["Código"]==code,f"{col} min"]
+        mx=styles.loc[styles["Código"]==code,f"{col} max"]
+        if not mn.empty and not pd.isna(mn.iloc[0]) and not pd.isna(mx.iloc[0]):
+            tech_parts.append(f"**{label}:** {float(mn.iloc[0]):g}–{float(mx.iloc[0]):g}")
+    if tech_parts:
+        st.markdown("**📊 Dados técnicos do estilo**")
+        st.caption(" · ".join(tech_parts))
+
+
+if step == "Resultado":
     st.header("🍺 ESTILOS MAIS PRÓXIMOS")
-    st.caption("O resultado considera somente os parâmetros realmente avaliados. Referências esperadas/opcionais têm peso maior; descritores sem status de expectativa podem servir apenas como sinal descritivo. Não é uma classificação oficial BJCP.")
+    st.caption("O código mantém a numeração oficial da categoria/estilo BJCP. As palavras-chave do perfil aparecem em cinza; as que correspondem ao que você descreveu ficam verdes. Características informadas que não aparecem no perfil ficam em vermelho em **Não previsto no estilo**.")
     top3 = calculate_matching()
+    user_keywords = _user_keywords()
     if not top3:
         st.warning("Nenhum parâmetro foi avaliado ainda. Volte às etapas anteriores e registre pelo menos uma característica ou dado técnico.")
     else:
         for i,res in enumerate(top3,1):
             with st.container(border=True):
-                st.subheader(f"{i}º — {res['Estilo']}")
-                st.progress(min(1.0,res['Score']/100), text=f"Compatibilidade: {res['Score']:.0f}%")
-                if res["missing"]:
-                    st.markdown("**🟡 O que falta para se aproximar de 100%**")
-                    for pid,_,typ,val in res["missing"][:6]:
-                        pname=categories.loc[categories["Parametro_ID"]==pid,"Parâmetro"]
-                        label=str(pname.iloc[0]) if not pname.empty else pid
-                        st.write(f"• {label}: informado {val:g}/10 · típico do perfil ≈ {typ:g}/10")
-                else:
-                    st.write("🟢 Os parâmetros esperados avaliados estão próximos do perfil registrado.")
-                if res["unexpected"]:
-                    st.markdown("**🔴 Informado, mas não aparece como esperado/opcional neste perfil**")
-                    for pid,val in res["unexpected"][:6]:
-                        pname=categories.loc[categories["Parametro_ID"]==pid,"Parâmetro"]
-                        label=str(pname.iloc[0]) if not pname.empty else pid
-                        st.write(f"• {label}: {val:g}/10")
-                else:
-                    st.write("🟢 Nenhuma característica relevante fora do perfil estruturado foi detectada.")
+                st.subheader(f"{i}º — {res['Código']} · {res['Estilo']}")
+                st.progress(min(1.0,res['Score']/100), text=f"Compatibilidade operacional: {res['Score']:.0f}%")
+                _render_style_profile(res, user_keywords)
 
 
 st.caption(
