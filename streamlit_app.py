@@ -580,8 +580,8 @@ with st.sidebar:
     )
 
 # Carrega SOMENTE as regras do estilo atualmente selecionado.
-if "Regras_Estilo_v6" in excel.sheet_names:
-    all_rules = load_sheet(db, "Regras_Estilo_v6")
+if "Regras_Estilo_v7" in excel.sheet_names:
+    all_rules = load_sheet(db, "Regras_Estilo_v7")
     if "Código" in all_rules.columns:
         rules = all_rules[
             all_rules["Código"].astype(str).str.strip().eq(selected_style_code)
@@ -1399,7 +1399,7 @@ with tab_possibilidades:
         try:
             # Procura regras estruturadas por estilo.
             possible_rule_sheets = [
-                "Regras_Estilo_v6",
+                "Regras_Estilo_v7",
             ]
             rules_for_possibilities = None
             rule_sheet_used = None
