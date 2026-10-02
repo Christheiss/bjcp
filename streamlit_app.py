@@ -2,6 +2,7 @@ import streamlit as st
 from pathlib import Path
 import pandas as pd
 import importlib.util
+import re
 
 st.set_page_config(
     page_title="BJCP Style Matcher",
