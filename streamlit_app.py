@@ -242,11 +242,13 @@ st.header("1. Avaliação sensorial")
 
 observations = []
 
-tab_aroma, tab_aparencia, tab_sabor, tab_boca = st.tabs([
+tab_aroma, tab_aparencia, tab_sabor, tab_boca, tab_falhas, tab_resultados = st.tabs([
     "🌸 Aroma",
     "👁️ Aparência",
     "👅 Sabor",
     "💧 Sensação na boca",
+    "⚠️ Falhas / Off-flavors",
+    "📊 Resultados",
 ])
 
 
@@ -387,7 +389,6 @@ with tab_aparencia:
 
     with col2:
         add_intensity("Aparência", "Retenção Colarinho", "Retenção do colarinho")
-        add_intensity("Aparência", "Textura Colarinho", "Textura do colarinho")
 
     st.divider()
 
@@ -573,15 +574,22 @@ with tab_sabor:
 
     st.markdown("### Equilíbrio")
 
-    add_checkbox_group(
-        "Sabor",
+    balance = st.select_slider(
         "Equilíbrio",
-        [
-            "Malte",
-            "Lúpulo",
-            "Equilibrado",
-        ],
+        options=["Malte", "Equilibrado", "Lúpulo"],
+        value="Equilibrado",
+        key="sabor_equilibrio",
     )
+
+    st.caption(f"**{balance}**")
+
+    observations.append({
+        "Seção": "Sabor",
+        "Parâmetro": "Equilíbrio",
+        "Tipo": "RANGE",
+        "Valor": balance,
+        "Intensidade": balance,
+    })
 
 
 # =========================================================
@@ -606,17 +614,28 @@ with tab_boca:
 
     st.divider()
 
-    st.markdown("### Falhas / características percebidas")
+    st.markdown("### Falhas")
 
     add_checkbox_group(
         "Sensação na Boca",
-        "Final",
+        "Falhas",
         [
             "Choca",
             "Gusher",
             "Quente",
             "Áspero",
             "Escorregadio",
+        ],
+    )
+
+    st.divider()
+
+    st.markdown("### Final")
+
+    add_checkbox_group(
+        "Sensação na Boca",
+        "Final",
+        [
             "Enjoativo",
             "Doce",
             "Médio",
@@ -862,145 +881,211 @@ def render_feedback(results):
 
 
 # =========================================================
+# FALHAS / OFF-FLAVORS
+# =========================================================
+with tab_falhas:
+
+    st.subheader("Falhas / Off-flavors")
+
+    st.caption(
+        "Marque somente as falhas que foram percebidas na amostra."
+    )
+
+    add_checkbox_group(
+        "Falhas",
+        "Aroma",
+        [
+            "Acetaldeído",
+            "Atingido por Luz",
+            "Azedo/Ácido",
+            "Alcoólico/Quente",
+            "Adstringente",
+            "Diacetil",
+            "DMS",
+            "Esterificado",
+            "Gramíneo",
+        ],
+    )
+
+    st.divider()
+
+    add_checkbox_group(
+        "Falhas",
+        "Sabor",
+        [
+            "Medicinal",
+            "Metálico",
+            "Mofo",
+            "Oxidado",
+            "Plástico",
+            "Solvente/Fusel",
+            "Vinagre",
+        ],
+    )
+
+    st.divider()
+
+    add_checkbox_group(
+        "Falhas",
+        "Boca / Outros",
+        [
+            "Fumaça",
+            "Condimento",
+            "Enxofre",
+            "Vegetal",
+            "Levedura",
+        ],
+    )
+
+
+# =========================================================
 # RESULTADO
 # =========================================================
 st.divider()
 
 st.header("2. Resultado")
 
-if st.button(
-    "🍺 Calcular compatibilidade",
-    type="primary",
-    use_container_width=True,
-):
+with tab_resultados:
 
-    try:
-        rule_records = rules.to_dict("records")
+    st.subheader("Resultado da avaliação")
 
-        # O motor continua calculando a pontuação.
-        if motor is not None and hasattr(motor, "calculate"):
-            score, details = motor.calculate(
-                observations,
-                rule_records,
-            )
-        else:
-            st.warning(
-                "Motor externo não encontrado. Mostrando apenas o feedback "
-                "sensorial enquanto o motor não estiver conectado."
-            )
-            score = None
-            details = []
+    st.caption(
+        "Aqui aparecerão a compatibilidade, os desvios encontrados e o "
+        "comparativo entre o que você percebeu e o que o estilo espera."
+    )
 
-        # -------------------------------------------------
-        # Feedback humano: observado x esperado
-        # -------------------------------------------------
-        observation_map = {
-            (
-                str(o.get("Seção") or ""),
-                str(o.get("Parâmetro") or ""),
-            ): o
-            for o in observations
-        }
+    if st.button(
+        "🍺 Calcular compatibilidade",
+        type="primary",
+        use_container_width=True,
+    ):
 
-        feedback_results = []
+        try:
+            rule_records = rules.to_dict("records")
 
-        for rule in rule_records:
-            rule_type = str(rule.get("Regra") or "").upper()
+            # O motor continua calculando a pontuação.
+            if motor is not None and hasattr(motor, "calculate"):
+                score, details = motor.calculate(
+                    observations,
+                    rule_records,
+                )
+            else:
+                st.warning(
+                    "Motor externo não encontrado. Mostrando apenas o feedback "
+                    "sensorial enquanto o motor não estiver conectado."
+                )
+                score = None
+                details = []
 
-            if rule_type not in ("REQUIRED", "OPTIONAL"):
-                continue
+            # -------------------------------------------------
+            # Feedback humano: observado x esperado
+            # -------------------------------------------------
+            observation_map = {
+                (
+                    str(o.get("Seção") or ""),
+                    str(o.get("Parâmetro") or ""),
+                ): o
+                for o in observations
+            }
 
-            key = (
-                str(rule.get("Seção") or ""),
-                str(rule.get("Parâmetro") or ""),
-            )
+            feedback_results = []
 
-            observation = observation_map.get(key)
+            for rule in rule_records:
+                rule_type = str(rule.get("Regra") or "").upper()
 
-            # Evita mostrar parâmetros derivados como se fossem regras normais.
-            if str(rule.get("measurement_type") or "").upper() == "DERIVED":
-                continue
+                if rule_type not in ("REQUIRED", "OPTIONAL"):
+                    continue
 
-            result = feedback_for_rule(rule, observation)
+                key = (
+                    str(rule.get("Seção") or ""),
+                    str(rule.get("Parâmetro") or ""),
+                )
 
-            feedback_results.append((
-                result[0],
-                str(rule.get("Parâmetro") or ""),
-                result[1],
-                result[2],
-                result[3],
-            ))
+                observation = observation_map.get(key)
 
-        # -------------------------------------------------
-        # Características inesperadas presentes
-        # -------------------------------------------------
-        rule_keys = {
-            (
-                str(r.get("Seção") or ""),
-                str(r.get("Parâmetro") or ""),
-            )
-            for r in rule_records
-        }
+                # Evita mostrar parâmetros derivados como se fossem regras normais.
+                if str(rule.get("measurement_type") or "").upper() == "DERIVED":
+                    continue
 
-        for obs in observations:
-            key = (
-                str(obs.get("Seção") or ""),
-                str(obs.get("Parâmetro") or ""),
-            )
+                result = feedback_for_rule(rule, observation)
 
-            if (
-                key not in rule_keys
-                and str(obs.get("Valor") or "").lower() == "presente"
-            ):
-                parameter = str(obs.get("Parâmetro") or "")
                 feedback_results.append((
-                    "DESVIO",
-                    parameter,
-                    "Presente",
-                    "Não previsto no perfil estruturado",
-                    f"{parameter}: foi percebido, mas não está estabelecido como característica esperada ou opcional deste estilo.",
+                    result[0],
+                    str(rule.get("Parâmetro") or ""),
+                    result[1],
+                    result[2],
+                    result[3],
                 ))
 
-        # -------------------------------------------------
-        # Resumo
-        # -------------------------------------------------
-        if score is not None:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Compatibilidade", f"{score:.2f}%")
-            c2.metric("Estilo", "1A")
-            c3.metric("Itens analisados", len(feedback_results))
+            # -------------------------------------------------
+            # Características inesperadas presentes
+            # -------------------------------------------------
+            rule_keys = {
+                (
+                    str(r.get("Seção") or ""),
+                    str(r.get("Parâmetro") or ""),
+                )
+                for r in rule_records
+            }
 
-        render_feedback(feedback_results)
+            for obs in observations:
+                key = (
+                    str(obs.get("Seção") or ""),
+                    str(obs.get("Parâmetro") or ""),
+                )
 
-        # Tabela técnica fica secundária.
-        with st.expander("Ver detalhamento técnico do motor"):
-            if details:
+                if (
+                    key not in rule_keys
+                    and str(obs.get("Valor") or "").lower() == "presente"
+                ):
+                    parameter = str(obs.get("Parâmetro") or "")
+                    feedback_results.append((
+                        "DESVIO",
+                        parameter,
+                        "Presente",
+                        "Não previsto no perfil estruturado",
+                        f"{parameter}: foi percebido, mas não está estabelecido como característica esperada ou opcional deste estilo.",
+                    ))
+
+            # -------------------------------------------------
+            # Resumo
+            # -------------------------------------------------
+            if score is not None:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Compatibilidade", f"{score:.2f}%")
+                c2.metric("Estilo", "1A")
+                c3.metric("Itens analisados", len(feedback_results))
+
+            render_feedback(feedback_results)
+
+            # Tabela técnica fica secundária.
+            with st.expander("Ver detalhamento técnico do motor"):
+                if details:
+                    st.dataframe(
+                        pd.DataFrame(
+                            details,
+                            columns=[
+                                "Parâmetro",
+                                "Regra",
+                                "Compatível",
+                            ],
+                        ),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("O motor não retornou detalhes técnicos.")
+
+            with st.expander("Ver dados coletados"):
                 st.dataframe(
-                    pd.DataFrame(
-                        details,
-                        columns=[
-                            "Parâmetro",
-                            "Regra",
-                            "Compatível",
-                        ],
-                    ),
+                    pd.DataFrame(observations),
                     use_container_width=True,
                     hide_index=True,
                 )
-            else:
-                st.info("O motor não retornou detalhes técnicos.")
 
-        with st.expander("Ver dados coletados"):
-            st.dataframe(
-                pd.DataFrame(observations),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-    except Exception as e:
-        st.error(f"Erro no cálculo: {e}")
-        st.exception(e)
-
+        except Exception as e:
+            st.error(f"Erro no cálculo: {e}")
+            st.exception(e)
 
 st.divider()
 
