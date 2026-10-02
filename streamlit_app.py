@@ -627,6 +627,241 @@ with tab_boca:
 
 
 # =========================================================
+# FEEDBACK DO MATCHING
+# =========================================================
+COLOR_BEER_ORDER = [
+    "Palha", "Amarelo", "Ouro", "Âmbar", "Cobre", "Marrom", "Preto"
+]
+
+COLOR_HEAD_ORDER = [
+    "Branco", "Marfim", "Creme", "Bege", "Moreno", "Marrom"
+]
+
+
+def color_position(value, palette):
+    try:
+        return palette.index(value)
+    except ValueError:
+        return None
+
+
+def feedback_for_rule(rule, observation):
+    """Retorna estado, texto observado e texto esperado."""
+    parameter = str(rule.get("Parâmetro") or "")
+    rule_type = str(rule.get("Regra") or "").upper()
+    measurement = str(rule.get("measurement_type") or "").upper()
+    range_type = str(rule.get("range_type") or "").upper()
+
+    if observation is None:
+        return (
+            "ERRO",
+            "Ausente",
+            "Não informado",
+            f"{parameter}: o estilo exige uma característica que não foi informada."
+        )
+
+    observed_value = str(observation.get("Valor") or "")
+    observed_intensity = str(observation.get("Intensidade") or "")
+
+    # -------------------------
+    # CORES
+    # -------------------------
+    if range_type == "COLOR_BEER":
+        palette = COLOR_BEER_ORDER
+        pos = color_position(observed_value, palette)
+
+        min_op = rule.get("Min_Operacional")
+        max_op = rule.get("Max_Operacional")
+
+        try:
+            min_pos = int(min_op) - 1
+            max_pos = int(max_op) - 1
+        except (TypeError, ValueError):
+            min_pos = max_pos = None
+
+        if pos is not None and min_pos is not None and max_pos is not None:
+            expected_min = palette[max(0, min_pos)]
+            expected_max = palette[min(len(palette) - 1, max_pos)]
+
+            if min_pos <= pos <= max_pos:
+                return (
+                    "OK",
+                    observed_value,
+                    f"{expected_min} → {expected_max}",
+                    f"{parameter}: dentro da faixa esperada."
+                )
+            if pos < min_pos:
+                return (
+                    "ABAIXO",
+                    observed_value,
+                    f"{expected_min} → {expected_max}",
+                    f"{parameter}: sua cor está mais clara que a faixa esperada pelo estilo."
+                )
+            return (
+                "ACIMA",
+                observed_value,
+                f"{expected_min} → {expected_max}",
+                f"{parameter}: sua cor está mais escura que a faixa esperada pelo estilo."
+            )
+
+    if range_type == "COLOR_HEAD":
+        palette = COLOR_HEAD_ORDER
+        pos = color_position(observed_value, palette)
+
+        if pos is not None:
+            expected = "Branco"
+            if observed_value == expected:
+                return (
+                    "OK",
+                    observed_value,
+                    expected,
+                    f"{parameter}: correto."
+                )
+            return (
+                "DESVIO",
+                observed_value,
+                expected,
+                f"{parameter}: o estilo pede {expected}; você marcou {observed_value}."
+            )
+
+    # -------------------------
+    # CHECKBOX
+    # -------------------------
+    if measurement == "CHECKBOX":
+        present = observed_value.lower() == "presente"
+
+        if rule_type == "REQUIRED":
+            if present:
+                return (
+                    "OK",
+                    "Presente",
+                    "Presente",
+                    f"{parameter}: característica esperada e percebida."
+                )
+            return (
+                "ERRO",
+                "Ausente",
+                "Presente",
+                f"{parameter}: o estilo espera essa característica, mas ela foi marcada como ausente."
+            )
+
+        if rule_type == "OPTIONAL":
+            if present:
+                return (
+                    "OK",
+                    "Presente",
+                    "Opcional",
+                    f"{parameter}: presente, mas permitido pelo estilo."
+                )
+            return (
+                "OK",
+                "Ausente",
+                "Opcional",
+                f"{parameter}: ausente; isso é permitido porque a característica é opcional."
+            )
+
+    # -------------------------
+    # INTENSIDADE
+    # -------------------------
+    levels_pt = {
+        "AUSENTE": "Ausente",
+        "VERY_LOW": "Muito baixo",
+        "LOW": "Baixo",
+        "MEDIUM_LOW": "Médio-baixo",
+        "MEDIUM": "Médio",
+        "MEDIUM_HIGH": "Médio-alto",
+        "HIGH": "Alto",
+        "VERY_HIGH": "Muito alto",
+    }
+
+    level_num = {
+        "AUSENTE": 0,
+        "VERY_LOW": 1,
+        "LOW": 2,
+        "MEDIUM_LOW": 3,
+        "MEDIUM": 4,
+        "MEDIUM_HIGH": 5,
+        "HIGH": 6,
+        "VERY_HIGH": 7,
+    }
+
+    obs_num = level_num.get(observed_intensity)
+    min_level = str(rule.get("Min_Linguístico") or "").upper()
+    max_level = str(rule.get("Max_Linguístico") or "").upper()
+    min_num = level_num.get(min_level)
+    max_num = level_num.get(max_level)
+
+    if obs_num is not None and min_num is not None and max_num is not None:
+        expected = levels_pt[min_level]
+        if min_level != max_level:
+            expected = f"{levels_pt[min_level]} → {levels_pt[max_level]}"
+
+        if min_num <= obs_num <= max_num:
+            return (
+                "OK",
+                levels_pt.get(observed_intensity, observed_intensity),
+                expected,
+                f"{parameter}: dentro da intensidade esperada."
+            )
+
+        if obs_num < min_num:
+            return (
+                "ABAIXO",
+                levels_pt.get(observed_intensity, observed_intensity),
+                expected,
+                f"{parameter}: intensidade abaixo do que o estilo descreve."
+            )
+
+        return (
+            "ACIMA",
+            levels_pt.get(observed_intensity, observed_intensity),
+            expected,
+            f"{parameter}: intensidade acima do que o estilo descreve."
+        )
+
+    return (
+        "INFO",
+        observed_value or observed_intensity,
+        str(rule.get("Termo_BJCP") or "Não especificado"),
+        f"{parameter}: comparação detalhada ainda não configurada."
+    )
+
+
+def render_feedback(results):
+    st.subheader("🔎 Feedback da avaliação")
+
+    for item in results:
+        status, parameter, observed, expected, message = item
+
+        if status == "OK":
+            st.success(
+                f"**{parameter}**  \n"
+                f"Você marcou: **{observed}**  \n"
+                f"Estilo pede: **{expected}**  \n"
+                f"✓ {message}"
+            )
+        elif status in ("ABAIXO", "ACIMA", "DESVIO"):
+            st.warning(
+                f"**{parameter}**  \n"
+                f"Você marcou: **{observed}**  \n"
+                f"Estilo pede: **{expected}**  \n"
+                f"⚠️ {message}"
+            )
+        elif status == "ERRO":
+            st.error(
+                f"**{parameter}**  \n"
+                f"Você marcou: **{observed}**  \n"
+                f"Estilo pede: **{expected}**  \n"
+                f"✗ {message}"
+            )
+        else:
+            st.info(
+                f"**{parameter}** — {message}  \n"
+                f"Você marcou: **{observed}** | Estilo: **{expected}**"
+            )
+
+
+# =========================================================
 # RESULTADO
 # =========================================================
 st.divider()
@@ -639,11 +874,121 @@ if st.button(
     use_container_width=True,
 ):
 
-    if motor is None or not hasattr(motor, "calculate"):
-        st.warning(
-            "A interface está pronta, mas o motor de matching completo "
-            "ainda precisa ser conectado a esta nova estrutura de entrada."
-        )
+    try:
+        rule_records = rules.to_dict("records")
+
+        # O motor continua calculando a pontuação.
+        if motor is not None and hasattr(motor, "calculate"):
+            score, details = motor.calculate(
+                observations,
+                rule_records,
+            )
+        else:
+            st.warning(
+                "Motor externo não encontrado. Mostrando apenas o feedback "
+                "sensorial enquanto o motor não estiver conectado."
+            )
+            score = None
+            details = []
+
+        # -------------------------------------------------
+        # Feedback humano: observado x esperado
+        # -------------------------------------------------
+        observation_map = {
+            (
+                str(o.get("Seção") or ""),
+                str(o.get("Parâmetro") or ""),
+            ): o
+            for o in observations
+        }
+
+        feedback_results = []
+
+        for rule in rule_records:
+            rule_type = str(rule.get("Regra") or "").upper()
+
+            if rule_type not in ("REQUIRED", "OPTIONAL"):
+                continue
+
+            key = (
+                str(rule.get("Seção") or ""),
+                str(rule.get("Parâmetro") or ""),
+            )
+
+            observation = observation_map.get(key)
+
+            # Evita mostrar parâmetros derivados como se fossem regras normais.
+            if str(rule.get("measurement_type") or "").upper() == "DERIVED":
+                continue
+
+            result = feedback_for_rule(rule, observation)
+
+            feedback_results.append((
+                result[0],
+                str(rule.get("Parâmetro") or ""),
+                result[1],
+                result[2],
+                result[3],
+            ))
+
+        # -------------------------------------------------
+        # Características inesperadas presentes
+        # -------------------------------------------------
+        rule_keys = {
+            (
+                str(r.get("Seção") or ""),
+                str(r.get("Parâmetro") or ""),
+            )
+            for r in rule_records
+        }
+
+        for obs in observations:
+            key = (
+                str(obs.get("Seção") or ""),
+                str(obs.get("Parâmetro") or ""),
+            )
+
+            if (
+                key not in rule_keys
+                and str(obs.get("Valor") or "").lower() == "presente"
+            ):
+                parameter = str(obs.get("Parâmetro") or "")
+                feedback_results.append((
+                    "DESVIO",
+                    parameter,
+                    "Presente",
+                    "Não previsto no perfil estruturado",
+                    f"{parameter}: foi percebido, mas não está estabelecido como característica esperada ou opcional deste estilo.",
+                ))
+
+        # -------------------------------------------------
+        # Resumo
+        # -------------------------------------------------
+        if score is not None:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Compatibilidade", f"{score:.2f}%")
+            c2.metric("Estilo", "1A")
+            c3.metric("Itens analisados", len(feedback_results))
+
+        render_feedback(feedback_results)
+
+        # Tabela técnica fica secundária.
+        with st.expander("Ver detalhamento técnico do motor"):
+            if details:
+                st.dataframe(
+                    pd.DataFrame(
+                        details,
+                        columns=[
+                            "Parâmetro",
+                            "Regra",
+                            "Compatível",
+                        ],
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("O motor não retornou detalhes técnicos.")
 
         with st.expander("Ver dados coletados"):
             st.dataframe(
@@ -652,62 +997,9 @@ if st.button(
                 hide_index=True,
             )
 
-    else:
-        try:
-            score, details = motor.calculate(
-                observations,
-                rules.to_dict("records"),
-            )
-
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric(
-                "Compatibilidade",
-                f"{score:.2f}%",
-            )
-
-            c2.metric(
-                "Estilo",
-                "1A",
-            )
-
-            c3.metric(
-                "Características avaliadas",
-                len(observations),
-            )
-
-            if score >= 80:
-                st.success("Alta compatibilidade operacional.")
-            elif score >= 60:
-                st.warning("Compatibilidade intermediária.")
-            else:
-                st.error("Baixa compatibilidade operacional.")
-
-            st.subheader("Detalhamento")
-
-            st.dataframe(
-                pd.DataFrame(
-                    details,
-                    columns=[
-                        "Parâmetro",
-                        "Regra",
-                        "Compatível",
-                    ],
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            with st.expander("Ver dados coletados"):
-                st.dataframe(
-                    pd.DataFrame(observations),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-        except Exception as e:
-            st.error(f"Erro no cálculo: {e}")
-            st.exception(e)
+    except Exception as e:
+        st.error(f"Erro no cálculo: {e}")
+        st.exception(e)
 
 
 st.divider()
