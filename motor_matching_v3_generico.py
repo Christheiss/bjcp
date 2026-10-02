@@ -1,214 +1,90 @@
-"""
-Motor de matching BJCP — versão inicial
----------------------------------------
-Este módulo é separado da interface Streamlit.
-
-Entrada:
-    observations: lista de observações sensoriais
-    rules: lista de regras estruturadas do estilo
-
-Saída:
-    score: compatibilidade de 0 a 100
-    details: detalhamento das regras avaliadas
-"""
-
-WEIGHTS = {
-    "REQUIRED": 5,
-    "OPTIONAL": 1,
-    "UNEXPECTED": 3,
-    "PROHIBITED": 10,
-}
-
 LEVELS = {
-    "NONE": 0,
-    "VERY_LOW": 1,
-    "LOW": 2,
-    "MEDIUM_LOW": 3,
-    "MEDIUM": 4,
-    "MEDIUM_HIGH": 5,
-    "HIGH": 6,
-    "VERY_HIGH": 7,
+    "AUSENTE": 0, "VERY_LOW": 1, "LOW": 2, "MEDIUM_LOW": 3,
+    "MEDIUM": 4, "MEDIUM_HIGH": 5, "HIGH": 6, "VERY_HIGH": 7,
 }
 
+BEER_COLORS = {"Palha": 0, "Amarelo": 1, "Ouro": 2, "Âmbar": 3, "Cobre": 4, "Marrom": 5, "Preto": 6}
+HEAD_COLORS = {"Branco": 0, "Marfim": 1, "Creme": 2, "Bege": 3, "Moreno": 4, "Marrom": 5}
 
-def _text(value):
+def _text(v):
+    return str(v or "").strip()
+
+def _level(v):
+    return LEVELS.get(_text(v).upper())
+
+def _color_match(obs, rule):
+    palette = BEER_COLORS if _text(rule.get("range_type")).upper() == "COLOR_BEER" else HEAD_COLORS
+    value = palette.get(_text(obs.get("Valor")))
     if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _level(value):
-    return LEVELS.get(_text(value).upper())
-
-
-def compare_range(observed, minimum, maximum):
-    """
-    Compara uma intensidade observada com o intervalo linguístico
-    definido pela regra.
-    """
-    obs = _level(observed)
-    lo = _level(minimum)
-    hi = _level(maximum)
-
-    if obs is None or lo is None or hi is None:
         return False
+    lo_raw, hi_raw = rule.get("Min_Operacional"), rule.get("Max_Operacional")
+    try:
+        lo = palette.get(_text(lo_raw), int(lo_raw))
+    except (ValueError, TypeError):
+        lo = palette.get(_text(lo_raw))
+    try:
+        hi = palette.get(_text(hi_raw), int(hi_raw))
+    except (ValueError, TypeError):
+        hi = palette.get(_text(hi_raw))
+    return lo is not None and hi is not None and lo <= value <= hi
 
-    return lo <= obs <= hi
-
-
-def compare_checkbox(value):
-    return _text(value).lower() == "presente"
-
-
-def _matches(rule, observation):
-    if observation is None:
+def _matches(rule, obs):
+    if obs is None:
         return False
-
-    measurement_type = _text(
-        rule.get("measurement_type")
-    ).upper()
-
-    if measurement_type == "CHECKBOX":
-        return compare_checkbox(observation.get("Valor"))
-
-    return compare_range(
-        observation.get("Intensidade"),
-        rule.get("Min_Linguístico"),
-        rule.get("Max_Linguístico"),
-    )
-
+    measurement = _text(rule.get("measurement_type")).upper()
+    range_type = _text(rule.get("range_type")).upper()
+    if measurement == "CHECKBOX":
+        return _text(obs.get("Valor")).lower() == "presente"
+    if range_type in ("COLOR_BEER", "COLOR_HEAD"):
+        return _color_match(obs, rule)
+    obs_v, lo_v, hi_v = _level(obs.get("Intensidade")), _level(rule.get("Min_Linguístico")), _level(rule.get("Max_Linguístico"))
+    return obs_v is not None and lo_v is not None and hi_v is not None and lo_v <= obs_v <= hi_v
 
 def calculate(observations, rules):
-    """
-    Calcula a compatibilidade de uma avaliação com um estilo.
-
-    REQUIRED:
-        cada regra atendida recebe peso 5.
-
-    OPTIONAL:
-        não aumenta o teto da pontuação e não penaliza quando ausente.
-
-    UNEXPECTED:
-        uma característica presente sem regra correspondente gera
-        penalidade 3.
-
-    PROHIBITED:
-        uma característica explicitamente proibida gera penalidade 10.
-    """
-
-    observations = observations or []
-    rules = rules or []
-
-    # Indexa as observações pela dimensão sensorial + parâmetro.
-    observation_map = {}
-
-    for obs in observations:
-        key = (
-            _text(obs.get("Seção")),
-            _text(obs.get("Parâmetro")),
-        )
-        observation_map[key] = obs
-
-    required_rules = [
-        r for r in rules
-        if _text(r.get("Regra")).upper() == "REQUIRED"
-    ]
-
-    points = 0
-    maximum = len(required_rules) * WEIGHTS["REQUIRED"]
-
-    details = []
-
-    # -----------------------------------------------------
-    # REQUIRED
-    # -----------------------------------------------------
-    for rule in required_rules:
-        key = (
-            _text(rule.get("Seção")),
-            _text(rule.get("Parâmetro")),
-        )
-
-        observation = observation_map.get(key)
-        matched = _matches(rule, observation)
-
-        if matched:
-            points += WEIGHTS["REQUIRED"]
-
-        details.append([
-            rule.get("Parâmetro"),
-            "REQUIRED",
-            matched,
-        ])
-
-    # -----------------------------------------------------
-    # Detecta características presentes sem regra.
-    # -----------------------------------------------------
-    rule_keys = {
-        (
-            _text(r.get("Seção")),
-            _text(r.get("Parâmetro")),
-        )
-        for r in rules
-    }
-
-    unexpected = 0
-
-    for obs in observations:
-        key = (
-            _text(obs.get("Seção")),
-            _text(obs.get("Parâmetro")),
-        )
-
-        if key not in rule_keys:
-            if _text(obs.get("Valor")).lower() == "presente":
-                unexpected += 1
-
-                details.append([
-                    obs.get("Parâmetro"),
-                    "UNEXPECTED",
-                    False,
-                ])
-
-    # -----------------------------------------------------
-    # PROHIBITED explícito
-    # -----------------------------------------------------
-    prohibited = 0
+    obs_map = {(_text(o.get("Seção")), _text(o.get("Parâmetro"))): o for o in observations}
+    details, matched, evaluated = [], 0, 0
 
     for rule in rules:
-        if _text(rule.get("Regra")).upper() != "PROHIBITED":
+        rt = _text(rule.get("Regra")).upper()
+        if rt not in ("REQUIRED", "OPTIONAL", "PROHIBITED"):
             continue
+        key = (_text(rule.get("Seção")), _text(rule.get("Parâmetro")))
+        obs = obs_map.get(key)
+        if rt == "OPTIONAL":
+            if obs is None:
+                continue
+            mt = _text(rule.get("measurement_type")).upper()
+            if mt == "CHECKBOX":
+                if _text(obs.get("Valor")).lower() != "presente":
+                    continue
+            elif _text(obs.get("Intensidade")).upper() == "AUSENTE":
+                continue
+        if rt == "PROHIBITED":
+            if obs is None or _text(obs.get("Valor")).lower() != "presente":
+                continue
 
-        key = (
-            _text(rule.get("Seção")),
-            _text(rule.get("Parâmetro")),
-        )
+        evaluated += 1
+        ok = _matches(rule, obs)
+        matched += int(ok)
+        details.append({
+            "Seção": rule.get("Seção"),
+            "Parâmetro": rule.get("Parâmetro"),
+            "Regra": rt,
+            "Observado": obs.get("Valor") if obs else "Ausente",
+            "Compatível": ok,
+        })
 
-        observation = observation_map.get(key)
+    rule_keys = {(_text(r.get("Seção")), _text(r.get("Parâmetro"))) for r in rules}
+    for obs in observations:
+        key = (_text(obs.get("Seção")), _text(obs.get("Parâmetro")))
+        if key not in rule_keys and _text(obs.get("Valor")).lower() == "presente":
+            evaluated += 1
+            details.append({
+                "Seção": obs.get("Seção"),
+                "Parâmetro": obs.get("Parâmetro"),
+                "Regra": "UNEXPECTED",
+                "Observado": "Presente",
+                "Compatível": False,
+            })
 
-        if observation is not None and _text(
-            observation.get("Valor")
-        ).lower() == "presente":
-            prohibited += 1
-
-            details.append([
-                rule.get("Parâmetro"),
-                "PROHIBITED",
-                False,
-            ])
-
-    # -----------------------------------------------------
-    # Resultado
-    # -----------------------------------------------------
-    penalty = (
-        unexpected * WEIGHTS["UNEXPECTED"]
-        + prohibited * WEIGHTS["PROHIBITED"]
-    )
-
-    if maximum <= 0:
-        score = 0.0
-    else:
-        score = ((points - penalty) / maximum) * 100
-
-    score = max(0.0, min(100.0, score))
-
-    return round(score, 2), details
+    return {"matched": matched, "evaluated": evaluated, "display": f"{matched} / {evaluated}"}, details
