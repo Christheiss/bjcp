@@ -60,6 +60,26 @@ intensity_df = db.get("Escala_Intensidade_BJCP", pd.DataFrame())
 srm_df = db.get("Referencia_Cor_SRM", pd.DataFrame())
 appearance_scale = db.get("Escala_Aparencia_UI", pd.DataFrame())
 color_ref = db.get("Referencia_Cor_BJCP", pd.DataFrame())
+synonyms_df = db.get("Mapa_Sinonimos", pd.DataFrame())
+
+# Canonical synonym lookup used by both the UI and the matching engine.
+SYNONYM_CANONICAL = {}
+SYNONYM_LABEL = {}
+if not synonyms_df.empty:
+    for _, row in synonyms_df.iterrows():
+        gid = str(row.get("Grupo_Sinonimo_ID", "")).strip()
+        canonical = str(row.get("Termo_Canonico", "")).strip().lower()
+        label = str(row.get("Rótulo_Canonico", "")).strip()
+        terms = [x.strip().lower() for x in str(row.get("Termos_BJCP", "")).split("|")]
+        for term in terms:
+            if term:
+                SYNONYM_CANONICAL[term] = canonical
+                SYNONYM_LABEL[term] = label
+
+def _canonical_synonym(term):
+    t = str(term or "").strip().lower()
+    return SYNONYM_CANONICAL.get(t, t)
+
 
 DEFAULT_INTENSITY = {
     0: "Ausente", 1: "Muito baixa", 2: "Muito baixa", 3: "Baixa",
@@ -73,6 +93,29 @@ DEFAULT_APPEARANCE = {
     6: "Moderada-alta", 7: "Alta", 8: "Muito alta",
     9: "Muito alta / proeminente", 10: "Extrema / máxima referência"
 }
+
+def _canonical_ui_options(df, label_col="Rótulo_PT"):
+    """Retorna opções únicas por grupo de sinônimo, preservando termos não agrupados."""
+    if df.empty:
+        return [], {}
+
+    options=[]
+    option_rows={}
+    for _, r in df.iterrows():
+        term_en=str(r.get("Termo_EN","")).strip().lower()
+        gid=str(r.get("Grupo_Sinonimo_ID","")).strip()
+        if gid and gid.startswith("SYN_"):
+            label=str(r.get("Rótulo_Canonico","")).strip()
+            key=f"syn::{gid}"
+        else:
+            label=str(r.get(label_col,"")).strip()
+            key=f"term::{term_en}"
+
+        if not label or key in option_rows:
+            continue
+        option_rows[key]=r
+        options.append(label)
+    return options, option_rows
 
 def label_intensity(value, appearance=False):
     df = appearance_scale if appearance else intensity_df
@@ -863,11 +906,7 @@ if step == "Aroma":
         if df.empty:
             return
 
-        options = df["Rótulo_PT"].astype(str).tolist()
-        option_to_id = dict(zip(
-            df["Rótulo_PT"].astype(str),
-            df["Parametro_ID"].astype(str)
-        ))
+        options, option_rows = _canonical_ui_options(df)
         previous = st.session_state.aroma_selected.get(db_group, [])
 
         with st.expander(
@@ -885,7 +924,13 @@ if step == "Aroma":
             # A nuance selecionada significa apenas presença.
             # A intensidade continua sendo determinada exclusivamente pelo slider.
             for label in selected:
-                st.session_state.aroma_values[option_to_id[label]] = 1
+                matches = []
+                for key, row in option_rows.items():
+                    row_label = str(row.get("Rótulo_Canonico", "")).strip() if str(row.get("Grupo_Sinonimo_ID", "")).startswith("SYN_") else str(row.get("Rótulo_PT", "")).strip()
+                    if row_label == label:
+                        matches.append(row)
+                for row in matches:
+                    st.session_state.aroma_values[str(row.get("Parametro_ID", ""))] = 1
 
     # LÚPULO
     value = st.slider(
@@ -1068,8 +1113,10 @@ elif step == "Aparência":
                 st.session_state.appearance_selected[group] = selected
                 # Nuances são presença/ausência. A intensidade fica nos parâmetros principais.
                 for label in selected:
-                    aid = id_map[label]
-                    st.session_state.appearance_values[aid] = 1
+                    for _, row in df.iterrows():
+                        row_label = str(row.get("Rótulo_Canonico", row.get("Rótulo_PT",""))).strip()
+                        if row_label == label:
+                            st.session_state.appearance_values[str(row.get("Aparencia_ID",""))] = 1
 
     st.divider()
     st.subheader("Resumo da Aparência")
@@ -1191,8 +1238,10 @@ elif step == "Sabor":
 
                 # Nuances = presença/ausência. A intensidade é medida no slider principal.
                 for label in selected:
-                    sid = id_map[label]
-                    st.session_state.flavor_values[sid] = 1
+                    for _, row in df.iterrows():
+                        row_label = str(row.get("Rótulo_Canonico", row.get("Rótulo_PT",""))).strip()
+                        if row_label == label:
+                            st.session_state.flavor_values[str(row.get("Sabor_ID",""))] = 1
 
     st.divider()
     st.subheader("Resumo do Sabor")
@@ -1301,8 +1350,10 @@ elif step == "Sensação de boca":
 
                 # Nuances = presença/ausência. A intensidade é medida no parâmetro principal.
                 for label in selected:
-                    mid = id_map[label]
-                    st.session_state.mouth_values[mid] = 1
+                    for _, row in df.iterrows():
+                        row_label = str(row.get("Rótulo_Canonico", row.get("Rótulo_PT",""))).strip()
+                        if row_label == label:
+                            st.session_state.mouth_values[str(row.get("Sensacao_Boca_ID",""))] = 1
 
     st.divider()
     st.subheader("Resumo da Sensação de Boca")
@@ -1401,8 +1452,9 @@ def _profile_rows_for_style(code):
 
 
 def _user_keywords():
-    """Descritores realmente selecionados pelo usuário, com dimensão e intensidade."""
+    """Descritores selecionados, consolidados por grupo de sinônimo para evitar dupla contagem."""
     out=[]
+    seen=set()
     for label_map, values, sheet, dim in [
         (st.session_state.get("aroma_selected", {}), st.session_state.get("aroma_values", {}), aroma_ui, "Aroma"),
         (st.session_state.get("flavor_selected", {}), st.session_state.get("flavor_values", {}), flavor_ui, "Flavor"),
@@ -1415,16 +1467,28 @@ def _user_keywords():
         for group, labels in label_map.items():
             df=sheet[sheet["Grupo_UI"].astype(str)==str(group)] if "Grupo_UI" in sheet.columns else sheet
             for label in labels:
-                row=df[df["Rótulo_PT"].astype(str)==str(label)]
-                if row.empty: continue
-                r=row.iloc[0]
-                out.append({
-                    "dim": "Sabor" if dim=="Flavor" else ("Sensação de boca" if dim=="Mouthfeel" else ("Aparência" if dim=="Appearance" else "Aroma")),
-                    "term_en": str(r.get("Termo_EN", "")),
-                    "term_pt": str(r.get("Rótulo_PT", label)),
-                    "value": int(values.get(str(r[id_col]), 0)),
-                    "pid": _canonical_pid_from_ui(dim, r),
-                })
+                # Seleção pode ser o rótulo canônico ou o original.
+                if "Rótulo_Canonico" in df.columns:
+                    row=df[df["Rótulo_Canonico"].astype(str)==str(label)]
+                    if row.empty:
+                        row=df[df["Rótulo_PT"].astype(str)==str(label)]
+                else:
+                    row=df[df["Rótulo_PT"].astype(str)==str(label)]
+                for _, r in row.iterrows():
+                    term_en=str(r.get("Termo_EN","")).strip()
+                    canonical=_canonical_synonym(term_en)
+                    unique_key=(dim, canonical)
+                    if unique_key in seen:
+                        continue
+                    seen.add(unique_key)
+                    out.append({
+                        "dim": "Sabor" if dim=="Flavor" else ("Sensação de boca" if dim=="Mouthfeel" else ("Aparência" if dim=="Appearance" else "Aroma")),
+                        "term_en": term_en,
+                        "term_pt": str(r.get("Rótulo_Canonico", r.get("Rótulo_PT", label))),
+                        "canonical_term": canonical,
+                        "value": 1,
+                        "pid": _canonical_pid_from_ui(dim, r),
+                    })
     return out
 
 
@@ -1456,7 +1520,9 @@ def _profile_term_matches_user(profile_row, user_keywords):
     for u in user_keywords:
         if u.get("dim") != p_dim:
             continue
-        # Compara tanto o termo original em inglês quanto a tradução exibida na UI.
+        # Primeiro compara pelo grupo canônico de sinônimos; depois pelo texto.
+        if _canonical_synonym(u.get("term_en", "")) == _canonical_synonym(p_en):
+            return True
         if _keyword_match(u.get("term_en", ""), p_en) or _keyword_match(u.get("term_pt", ""), p_pt):
             return True
         # Também tenta a tradução do termo informado contra o inglês do perfil.
