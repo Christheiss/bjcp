@@ -844,10 +844,12 @@ if step == "Aroma":
     # Layout do Aroma:
     # slider principal → caixa de nuances → próximo slider.
     # A intensidade é única para o grupo; as nuances são apenas percepções.
+    # Os nomes abaixo precisam corresponder exatamente à coluna Grupo_UI
+    # da aba Vocabulario_Aroma_UI.
     aroma_groups = {
-        "Lúpulo": "🌿 Lúpulo",
-        "Malte": "🌾 Malte",
-        "Fermentação": "🍺 Fermentação / levedura",
+        "Lúpulo": "Aroma — Lúpulo",
+        "Malte": "Aroma — Malte",
+        "Fermentação": "Aroma — Fermentação",
     }
 
     def render_aroma_nuance_box(group):
@@ -867,7 +869,7 @@ if step == "Aroma":
 
         # Abre automaticamente quando já existem nuances selecionadas.
         with st.expander(
-            f"Aroma — {group.replace('🌿 ', '').replace('🌾 ', '').replace('🍺 ', '')} · {len(options)} descritores",
+            f"{group} · {len(options)} descritores",
             expanded=bool(previous),
         ):
             selected = st.multiselect(
