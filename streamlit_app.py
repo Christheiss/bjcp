@@ -870,7 +870,19 @@ if step == "Aroma":
         db_group, display_group = group_data
         df = aroma_ui[aroma_ui["Grupo_UI"] == db_group].copy()
         if "Ativo_UI" in df.columns:
-            df = df[df["Ativo_UI"].astype(str).str.lower().isin(["sim", "yes", "true", "1"])]
+            ativo = df["Ativo_UI"]
+            df = df[ativo.astype(str).str.lower().isin(["sim", "yes", "true", "1"])]
+
+        # A base antiga usa Rótulo_PT; versões novas podem usar Rótulo_Canonico.
+        # Normalizamos internamente para evitar KeyError entre versões do banco.
+        if "Rótulo_Canonico" not in df.columns:
+            if "Rótulo_PT" in df.columns:
+                df["Rótulo_Canonico"] = df["Rótulo_PT"]
+            else:
+                df["Rótulo_Canonico"] = df.get("Termo_EN", "")
+
+        if "Grupo_Sinonimo_ID" not in df.columns:
+            df["Grupo_Sinonimo_ID"] = ""
         if df.empty:
             return
 
@@ -978,36 +990,155 @@ if step == "Aroma":
 # -----------------------------
 elif step == "Aparência":
     st.info(
-        "Os cinco controles principais registram a avaliação operacional da aparência. "
-        "A escala 0–10 é criada pelo BeerSense e não é uma escala numérica oficial do BJCP. "
-        "As nuances são apenas presença/ausência e refinam o perfil."
+        "Cor é mostrada diretamente em SRM e recebe uma descrição nominal. "
+        "Os demais controles usam escala operacional 0–10 do BeerSense; "
+        "isso não é uma escala numérica oficial do BJCP."
     )
     st.header("APARÊNCIA")
 
+    # -----------------------------
+    # Helpers visuais da aparência
+    # -----------------------------
+    COLOR_STOPS = [
+        (2.5, "Palha", "#FFE699"),
+        (3.5, "Amarelo", "#F5D76E"),
+        (5.5, "Dourado", "#D9A441"),
+        (7.5, "Âmbar", "#B87333"),
+        (12.0, "Âmbar profundo / cobre claro", "#9A5A2A"),
+        (15.5, "Cobre", "#8A4B24"),
+        (17.5, "Cobre profundo / marrom claro", "#70452A"),
+        (20.5, "Marrom", "#5A3825"),
+        (26.0, "Marrom escuro", "#3F2619"),
+        (32.5, "Muito marrom escuro", "#2A1A13"),
+        (35.0, "Preto", "#17110E"),
+        (40.0, "Preto opaco", "#090706"),
+    ]
+
+    def color_from_srm(srm):
+        srm = float(srm)
+        if srm <= COLOR_STOPS[0][0]:
+            return COLOR_STOPS[0][1:]
+        if srm >= COLOR_STOPS[-1][0]:
+            return COLOR_STOPS[-1][1:]
+        for (a, b), (c, d) in zip(COLOR_STOPS, COLOR_STOPS[1:]):
+            if a <= srm <= c:
+                t = (srm - a) / (c - a)
+                def rgb(h):
+                    h = h.lstrip("#")
+                    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+                r1,g1,b1 = rgb(b); r2,g2,b2 = rgb(d)
+                hx = "#%02X%02X%02X" % (round(r1+(r2-r1)*t), round(g1+(g2-g1)*t), round(b1+(b2-b1)*t))
+                label = b if t < 0.5 else d
+                return label, hx
+        return COLOR_STOPS[0][1:]
+
+    def srm_from_color_slider(v):
+        # 0–10 é apenas a posição operacional do slider; o valor exibido é SRM.
+        positions = [2.5, 3.5, 5.5, 7.5, 12.0, 15.5, 17.5, 20.5, 26.0, 32.5, 40.0]
+        return positions[int(v)]
+
+    def foam_color(v):
+        options = [
+            ("Branco", "#F7F5E8"),
+            ("Branco", "#F7F5E8"),
+            ("Branco", "#F7F5E8"),
+            ("Bege claro", "#E8D3A8"),
+            ("Bege claro", "#E8D3A8"),
+            ("Bege", "#D6B98A"),
+            ("Bege", "#D6B98A"),
+            ("Bege", "#D6B98A"),
+            ("Creme", "#F0D8A8"),
+            ("Creme", "#F0D8A8"),
+            ("Creme", "#F0D8A8"),
+        ]
+        return options[int(v)]
+
+    color_slider = st.session_state.appearance_main.get("Cor", 5)
+    # Compatibilidade: se a sessão ainda tiver um valor 0–10, preservamos a posição.
+    color_slider = max(0, min(10, int(color_slider)))
+    color_srm = srm_from_color_slider(color_slider)
+    beer_name, beer_hex = color_from_srm(color_srm)
+
+    foam_slider = max(0, min(10, int(st.session_state.appearance_main.get("Cor da espuma", 2))))
+    foam_name, foam_hex = foam_color(foam_slider)
+    head_size = max(0, min(10, int(st.session_state.appearance_main.get("Tamanho da espuma", 5))))
+    head_retention = max(0, min(10, int(st.session_state.appearance_main.get("Retenção da espuma", 5))))
+    clarity = max(0, min(10, int(st.session_state.appearance_main.get("Limpidez", 5))))
+
+    # O copo é renderizado depois dos controles para refletir imediatamente os valores atuais.
+    st.divider()
     st.markdown("### 🎨 Cor")
-    v = st.slider("Cor", 0, 10, int(st.session_state.appearance_main["Cor"]), 1, key="appearance_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor",))
+    v = st.slider("Intensidade da cor", 0, 10, color_slider, 1, key="appearance_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor",))
     st.session_state.appearance_main["Cor"] = v
-    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+    srm = srm_from_color_slider(v)
+    cname, chex = color_from_srm(srm)
+    st.caption(f"**{cname} · SRM {srm:g}**")
+    st.markdown(f'<div style="height:18px;border-radius:9px;background:{chex};border:1px solid rgba(255,255,255,.25);"></div>', unsafe_allow_html=True)
 
     st.markdown("### 🫧 Cor da espuma")
-    v = st.slider("Cor da espuma", 0, 10, int(st.session_state.appearance_main["Cor da espuma"]), 1, key="appearance_foam_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor da espuma",))
+    v = st.slider("Intensidade operacional da cor da espuma", 0, 10, foam_slider, 1, key="appearance_foam_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor da espuma",))
     st.session_state.appearance_main["Cor da espuma"] = v
-    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+    fname, fhex = foam_color(v)
+    st.caption(f"**{fname}**")
+    st.markdown(f'<div style="height:18px;border-radius:9px;background:{fhex};border:1px solid rgba(255,255,255,.25);"></div>', unsafe_allow_html=True)
 
     st.markdown("### 🫧 Tamanho da espuma")
-    v = st.slider("Tamanho da espuma", 0, 10, int(st.session_state.appearance_main["Tamanho da espuma"]), 1, key="appearance_head_size", on_change=mark_main_evaluated, args=("Aparência — Tamanho da espuma",))
+    v = st.slider("Altura da espuma", 0, 10, head_size, 1, key="appearance_head_size", on_change=mark_main_evaluated, args=("Aparência — Tamanho da espuma",))
     st.session_state.appearance_main["Tamanho da espuma"] = v
     st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
 
     st.markdown("### 🫧 Retenção da espuma")
-    v = st.slider("Retenção da espuma", 0, 10, int(st.session_state.appearance_main["Retenção da espuma"]), 1, key="appearance_head_retention", on_change=mark_main_evaluated, args=("Aparência — Retenção da espuma",))
+    v = st.slider("Retenção da espuma", 0, 10, head_retention, 1, key="appearance_head_retention", on_change=mark_main_evaluated, args=("Aparência — Retenção da espuma",))
     st.session_state.appearance_main["Retenção da espuma"] = v
     st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
 
     st.markdown("### 🔎 Limpidez")
-    v = st.slider("Limpidez", 0, 10, int(st.session_state.appearance_main["Limpidez"]), 1, key="appearance_clarity", on_change=mark_main_evaluated, args=("Aparência — Limpidez",))
+    v = st.slider("Limpidez", 0, 10, clarity, 1, key="appearance_clarity", on_change=mark_main_evaluated, args=("Aparência — Limpidez",))
     st.session_state.appearance_main["Limpidez"] = v
     st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+
+    # -----------------------------
+    # Copo visual — atualização com os 5 parâmetros atuais
+    # -----------------------------
+    color_srm = srm_from_color_slider(int(st.session_state.appearance_main["Cor"]))
+    beer_name, beer_hex = color_from_srm(color_srm)
+    foam_name, foam_hex = foam_color(int(st.session_state.appearance_main["Cor da espuma"]))
+    head_size_now = int(st.session_state.appearance_main["Tamanho da espuma"])
+    retention_now = int(st.session_state.appearance_main["Retenção da espuma"])
+    clarity_now = int(st.session_state.appearance_main["Limpidez"])
+    foam_height = max(4, round(6 + head_size_now * 2.7))
+    foam_opacity = 0.82 + (retention_now / 10) * 0.18
+    haze = max(0.0, (5 - clarity_now) / 10)
+    _, beer_visual_hex = color_from_srm(color_srm)
+    _, foam_visual_hex = foam_color(int(st.session_state.appearance_main["Cor da espuma"]))
+    glass_html = f"""
+    <div style="display:flex;justify-content:center;margin:14px 0 8px 0;">
+      <div style="width:210px;height:390px;position:relative;">
+        <div style="position:absolute;left:32px;right:32px;top:12px;height:300px;
+                    border:3px solid rgba(220,225,235,.62);border-top:0;border-radius:0 0 48px 48px;
+                    background:linear-gradient(90deg,rgba(255,255,255,.13),rgba(255,255,255,.02),rgba(255,255,255,.13));
+                    box-shadow:0 8px 25px rgba(0,0,0,.22);overflow:hidden;">
+          <div style="position:absolute;left:0;right:0;bottom:0;height:66%;
+                      background:{beer_visual_hex};opacity:{1-haze*0.35:.3f};
+                      box-shadow:inset 0 0 22px rgba(255,255,255,.10);"></div>
+          <div style="position:absolute;left:0;right:0;bottom:66%;height:{foam_height}px;
+                      background:{foam_visual_hex};opacity:{foam_opacity:.3f};border-radius:20px 20px 8px 8px;
+                      box-shadow:0 -3px 10px rgba(255,255,255,.30), inset 0 -4px 8px rgba(0,0,0,.08);"></div>
+          <div style="position:absolute;left:12px;top:22px;bottom:22px;width:8px;border-radius:10px;
+                      background:rgba(255,255,255,.18);"></div>
+        </div>
+        <div style="position:absolute;left:85px;top:312px;width:40px;height:48px;
+                    border-left:3px solid rgba(220,225,235,.62);border-right:3px solid rgba(220,225,235,.62);"></div>
+        <div style="position:absolute;left:52px;top:358px;width:106px;height:10px;
+                    border-radius:50%;background:rgba(220,225,235,.35);"></div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:-8px;">
+      <b>{beer_name}</b> · SRM {color_srm:g} · espuma {foam_name} · altura {head_size_now}/10
+    </div>
+    """
+    st.markdown(glass_html, unsafe_allow_html=True)
+    st.caption("O copo é uma representação visual operacional: a cerveja ocupa cerca de 2/3 do copo e a espuma o terço superior.")
 
     st.divider()
     st.markdown("### 👁️ Nuances visuais")
@@ -1018,10 +1149,15 @@ elif step == "Aparência":
     else:
         groups = ["👁️ Nuances visuais"]
         for group in groups:
-            df = appearance_ui[(appearance_ui["Grupo_UI"] == group) & (appearance_ui["Ativo_UI"] == True)].copy()
+            if "Ativo_UI" in appearance_ui.columns:
+                active_mask = appearance_ui["Ativo_UI"].astype(str).str.lower().isin(["true", "1", "sim", "yes"])
+                df = appearance_ui[(appearance_ui["Grupo_UI"] == group) & active_mask].copy()
+            else:
+                df = appearance_ui[appearance_ui["Grupo_UI"] == group].copy()
             if df.empty:
                 continue
-            options = df["Rótulo_PT"].drop_duplicates().astype(str).tolist()
+            label_col = "Rótulo_PT" if "Rótulo_PT" in df.columns else "Termo_EN"
+            options = df[label_col].drop_duplicates().astype(str).tolist()
             prev = st.session_state.appearance_selected.get(group, [])
             selected = st.multiselect(
                 "Características percebidas", options,
@@ -1029,15 +1165,15 @@ elif step == "Aparência":
                 key="appearance_visual_nuances"
             )
             st.session_state.appearance_selected[group] = selected
-            id_map = dict(zip(df["Rótulo_PT"].astype(str), df["Aparencia_ID"].astype(str)))
+            id_map = dict(zip(df[label_col].astype(str), df["Aparencia_ID"].astype(str)))
             for label in selected:
                 st.session_state.appearance_values[id_map[label]] = 1
 
     st.divider()
     st.subheader("Resumo da Aparência")
     c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Cor", f"{st.session_state.appearance_main['Cor']}/10")
-    c2.metric("Espuma — cor", f"{st.session_state.appearance_main['Cor da espuma']}/10")
+    c1.metric("Cor", f"SRM {srm:g}")
+    c2.metric("Espuma — cor", fname)
     c3.metric("Espuma — tamanho", f"{st.session_state.appearance_main['Tamanho da espuma']}/10")
     c4.metric("Espuma — retenção", f"{st.session_state.appearance_main['Retenção da espuma']}/10")
     c5.metric("Limpidez", f"{st.session_state.appearance_main['Limpidez']}/10")
