@@ -96,6 +96,34 @@ def add_intensity(section, parameter, label, default=0):
     })
 
 
+def add_fermentation_status(ester_intensity, phenol_intensity):
+    """Deriva o perfil de fermentação a partir de ésteres e fenóis."""
+    ester_code = INTENSITY_TO_CODE[INTENSITIES[ester_intensity]]
+    phenol_code = INTENSITY_TO_CODE[INTENSITIES[phenol_intensity]]
+
+    if ester_intensity == 0 and phenol_intensity == 0:
+        status = "Fermentação limpa"
+        explanation = "Ésteres e fenóis estão ausentes."
+    else:
+        status = "Fermentação com caráter perceptível"
+        present = []
+        if ester_intensity > 0:
+            present.append(f"ésteres: {INTENSITIES[ester_intensity].lower()}")
+        if phenol_intensity > 0:
+            present.append(f"fenóis: {INTENSITIES[phenol_intensity].lower()}")
+        explanation = " / ".join(present)
+
+    st.info(f"**Perfil de fermentação: {status}** — {explanation}")
+
+    observations.append({
+        "Seção": "Aroma",
+        "Parâmetro": "Perfil de fermentação",
+        "Tipo": "DERIVED",
+        "Valor": status,
+        "Intensidade": "",
+    })
+
+
 def add_checkbox(section, parameter, label, group=""):
     """Controle de presença: checkbox.
 
@@ -236,8 +264,42 @@ with tab_aroma:
     with col1:
         add_intensity("Aroma", "Malte", "Malte")
         add_intensity("Aroma", "Lúpulo", "Lúpulo")
-        add_intensity("Aroma", "Ésteres", "Ésteres")
-        add_intensity("Aroma", "Fenóis", "Fenóis")
+
+        ester_intensity = st.slider(
+            "Ésteres",
+            min_value=0,
+            max_value=7,
+            value=0,
+            step=1,
+            key="slider_Aroma_Ésteres",
+        )
+        st.caption(f"**{INTENSITIES[ester_intensity]}**")
+        observations.append({
+            "Seção": "Aroma",
+            "Parâmetro": "Ésteres",
+            "Tipo": "RANGE",
+            "Valor": INTENSITIES[ester_intensity],
+            "Intensidade": INTENSITY_TO_CODE[INTENSITIES[ester_intensity]],
+        })
+
+        phenol_intensity = st.slider(
+            "Fenóis",
+            min_value=0,
+            max_value=7,
+            value=0,
+            step=1,
+            key="slider_Aroma_Fenóis",
+        )
+        st.caption(f"**{INTENSITIES[phenol_intensity]}**")
+        observations.append({
+            "Seção": "Aroma",
+            "Parâmetro": "Fenóis",
+            "Tipo": "RANGE",
+            "Valor": INTENSITIES[phenol_intensity],
+            "Intensidade": INTENSITY_TO_CODE[INTENSITIES[phenol_intensity]],
+        })
+
+        add_fermentation_status(ester_intensity, phenol_intensity)
 
     with col2:
         add_intensity("Aroma", "Álcool", "Álcool")
