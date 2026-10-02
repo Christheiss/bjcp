@@ -1172,9 +1172,9 @@ with tab_resultados:
             # -------------------------------------------------
             # Resumo
             # -------------------------------------------------
-            if score is not None:
+            if result is not None:
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Compatibilidade", f"{score:.2f}%")
+                c1.metric("Itens compatíveis", result["display"])
                 c2.metric("Estilo", "1A")
                 c3.metric("Itens analisados", len(feedback_results))
 
