@@ -1013,12 +1013,8 @@ def render_feedback(results):
 
 
 # =========================================================
-# RESULTADO
+# RESULTADO — ABA
 # =========================================================
-st.divider()
-
-st.header("2. Resultado")
-
 with tab_resultados:
 
     st.subheader("Resultado da avaliação")
@@ -1152,15 +1148,15 @@ with tab_resultados:
                     if observed_value != "presente":
                         continue
 
-                result = feedback_for_rule(rule, observation)
+                feedback_result = feedback_for_rule(rule, observation)
 
                 feedback_results.append((
                     str(rule.get("Seção") or ""),
-                    result[0],
+                    feedback_result[0],
                     str(rule.get("Parâmetro") or ""),
-                    result[1],
-                    result[2],
-                    result[3],
+                    feedback_result[1],
+                    feedback_result[2],
+                    feedback_result[3],
                 ))
 
             # -------------------------------------------------
