@@ -96,11 +96,19 @@ def add_intensity(section, parameter, label, default=0):
     })
 
 
-def add_checkbox(section, parameter, label):
-    """Controle de presença: checkbox."""
+def add_checkbox(section, parameter, label, group=""):
+    """Controle de presença: checkbox.
+
+    A chave inclui o grupo porque um mesmo descritor pode aparecer
+    em mais de uma família (ex.: Cítrico em Lúpulo e Ésteres).
+    """
+    safe_group = str(group).strip().replace(" ", "_")
+    safe_parameter = str(parameter).strip().replace(" ", "_")
+    key = f"check_{section}_{safe_group}_{safe_parameter}"
+
     value = st.checkbox(
         label,
-        key=f"check_{section}_{parameter}",
+        key=key,
     )
 
     observations.append({
@@ -118,7 +126,7 @@ def add_checkbox_group(section, title, items):
 
     for i, item in enumerate(items):
         with cols[i % 4]:
-            add_checkbox(section, item, item)
+            add_checkbox(section, item, item, group=title)
 
 
 def add_color_checkboxes(section, parameter_prefix, title, colors):
@@ -341,6 +349,7 @@ with tab_aparencia:
                 "Aparência",
                 f"Cor_{color}",
                 color,
+                group="Cor da cerveja",
             )
 
     st.markdown("**Cor do colarinho**")
@@ -360,6 +369,7 @@ with tab_aparencia:
                 "Aparência",
                 f"Colarinho_{color}",
                 color,
+                group="Cor do colarinho",
             )
 
     st.markdown("**Outros aspectos**")
