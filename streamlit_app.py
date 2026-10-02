@@ -500,12 +500,33 @@ except Exception as e:
 # RESET DA AVALIAÇÃO
 # =========================================================
 def reset_evaluation():
-    """Zera todos os controles sensoriais sem alterar o estilo selecionado."""
-    keep = {"style_selector"}
+    """Zera explicitamente todos os widgets sensoriais e mantém o estilo."""
+    # IMPORTANTE:
+    # Em Streamlit, apenas apagar a chave de um widget não é suficiente:
+    # na próxima execução o widget pode recuperar seu valor anterior.
+    # Por isso, definimos explicitamente o estado inicial de cada família.
     for key in list(st.session_state.keys()):
-        if key in keep or str(key).startswith("btn_"):
+        key_str = str(key)
+
+        if key_str == "style_selector" or key_str.startswith("btn_"):
             continue
-        del st.session_state[key]
+
+        if key_str.startswith("slider_"):
+            st.session_state[key] = 0
+
+        elif key_str.startswith("check_"):
+            st.session_state[key] = False
+
+        elif key_str.startswith("color_"):
+            st.session_state[key] = 0
+
+        elif key_str == "sabor_equilibrio":
+            st.session_state[key] = "Equilibrado"
+
+        # Outros estados auxiliares da interface não devem carregar
+        # a avaliação anterior.
+        elif key_str.startswith("resultado_") or key_str.startswith("possibilidade_"):
+            del st.session_state[key]
 
 
 # =========================================================
