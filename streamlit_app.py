@@ -847,19 +847,8 @@ if step == "Aroma":
         "as percepções que compõem essa intensidade."
     )
 
-    # CSS: nuances selecionadas ficam verdes para comunicar "presente".
-    st.markdown("""
-    <style>
-    span[data-baseweb="tag"] {
-        background-color: #238636 !important;
-        color: white !important;
-    }
-    div[data-baseweb="select"]:has(span[data-baseweb="tag"]) {
-        border: 1px solid #238636 !important;
-        box-shadow: 0 0 0 1px rgba(35,134,54,.20) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    # As nuances selecionadas permanecem como tags visuais da interface.
+    # Não exibimos nível individual nem "presente".
 
     # Mapa de grupos de nuances diretamente ligados aos três parâmetros principais.
     aroma_groups = {
@@ -947,47 +936,6 @@ if step == "Aroma":
     st.caption(f"**{value}/10 — {label_intensity(value)}**")
     render_aroma_nuance_bar(aroma_groups["Fermentação"])
 
-    # Outros grupos continuam disponíveis abaixo, sem competir visualmente
-    # com os três parâmetros principais.
-    if not aroma_ui.empty:
-        other_groups = [
-            "🍑 Frutado",
-            "🍋 Acidez / fermentação mista",
-            "🪵 Madeira",
-            "💧 Água / mineral",
-            "Brett / Funky",
-            "⚠️ Defeitos / indesejáveis",
-            "🍯 Percepções",
-        ]
-        existing = set(aroma_ui["Grupo_UI"].dropna().astype(str))
-        other_groups += sorted(
-            existing - set(aroma_groups.values()) - set(other_groups)
-        )
-
-        if other_groups:
-            st.divider()
-            st.markdown("### Outras percepções")
-            for group in other_groups:
-                df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
-                if df.empty:
-                    continue
-                options = df["Rótulo_PT"].astype(str).tolist()
-                option_to_id = dict(zip(
-                    df["Rótulo_PT"].astype(str),
-                    df["Parametro_ID"].astype(str)
-                ))
-                previous = st.session_state.aroma_selected.get(group, [])
-
-                with st.expander(f"{group} · {len(options)} descritores"):
-                    selected = st.multiselect(
-                        "Nuances percebidas",
-                        options=options,
-                        default=[x for x in previous if x in options],
-                        key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
-                    )
-                    st.session_state.aroma_selected[group] = selected
-                    for label in selected:
-                        st.session_state.aroma_values[option_to_id[label]] = 1
 
 # -----------------------------
 # APARÊNCIA
