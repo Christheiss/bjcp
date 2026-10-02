@@ -18,6 +18,8 @@ DB_CANDIDATES = [
 ]
 
 MOTOR_CANDIDATES = [
+    BASE / "motor_matching_v4_contagem.py",
+    DATA_DIR / "motor_matching_v4_contagem.py",
     BASE / "motor_matching_v3_generico.py",
     DATA_DIR / "motor_matching_v3_generico.py",
 ]
@@ -646,6 +648,70 @@ with tab_boca:
 
 
 # =========================================================
+# FALHAS / OFF-FLAVORS
+# =========================================================
+with tab_falhas:
+
+    st.subheader("Falhas / Off-flavors")
+
+    st.caption(
+        "Marque somente as falhas que foram percebidas na amostra."
+    )
+
+    st.markdown("### Aroma / Fermentação")
+
+    add_checkbox_group(
+        "Falhas",
+        "Aroma / Fermentação",
+        [
+            "Acetaldeído",
+            "Atingido por Luz",
+            "Azedo/Ácido",
+            "Alcoólico/Quente",
+            "Adstringente",
+            "Diacetil",
+            "DMS",
+            "Esterificado",
+            "Gramíneo",
+        ],
+    )
+
+    st.divider()
+
+    st.markdown("### Sabor")
+
+    add_checkbox_group(
+        "Falhas",
+        "Sabor",
+        [
+            "Medicinal",
+            "Metálico",
+            "Mofo",
+            "Oxidado",
+            "Plástico",
+            "Solvente/Fusel",
+            "Vinagre",
+        ],
+    )
+
+    st.divider()
+
+    st.markdown("### Boca / Outros")
+
+    add_checkbox_group(
+        "Falhas",
+        "Boca / Outros",
+        [
+            "Fumaça",
+            "Condimento",
+            "Enxofre",
+            "Vegetal",
+            "Levedura",
+        ],
+    )
+
+
+# =========================================================
 # FEEDBACK DO MATCHING
 # =========================================================
 COLOR_BEER_ORDER = [
@@ -957,6 +1023,11 @@ with tab_resultados:
 
     st.subheader("Resultado da avaliação")
 
+    st.info(
+        "O resultado é uma contagem de características compatíveis. "
+        "Exemplo: **19 / 30** significa 19 itens compatíveis de 30 avaliados."
+    )
+
     st.caption(
         "Aqui aparecerão a compatibilidade, os desvios encontrados e o "
         "comparativo entre o que você percebeu e o que o estilo espera."
@@ -973,7 +1044,7 @@ with tab_resultados:
 
             # O motor continua calculando a pontuação.
             if motor is not None and hasattr(motor, "calculate"):
-                score, details = motor.calculate(
+                result, details = motor.calculate(
                     observations,
                     rule_records,
                 )
@@ -982,7 +1053,7 @@ with tab_resultados:
                     "Motor externo não encontrado. Mostrando apenas o feedback "
                     "sensorial enquanto o motor não estiver conectado."
                 )
-                score = None
+                result = None
                 details = []
 
             # -------------------------------------------------
