@@ -923,7 +923,10 @@ if step == "Aroma":
         args=("Aroma — Fermentação",),
     )
     st.session_state.aroma_main["Fermentação"] = value
-    st.caption(f"**{value}/10 — {label_intensity(value)}**")
+    if value == 0:
+        st.caption("**0/10 — Fermentação limpa**")
+    else:
+        st.caption(f"**{value}/10 — {label_intensity(value)}**")
     render_aroma_nuance_box(aroma_groups["Fermentação"])
 
 # -----------------------------
