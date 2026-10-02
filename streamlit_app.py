@@ -1019,13 +1019,33 @@ with tab_resultados:
                     continue
 
                 # OPTIONAL: só aparece se foi percebido.
+                # CHECKBOX -> precisa estar Presente.
+                # RANGE -> precisa ser diferente de Ausente.
                 if rule_type == "OPTIONAL":
                     if observation is None:
                         continue
 
-                    observed_value = str(observation.get("Valor") or "").lower()
-                    if observed_value != "presente":
-                        continue
+                    measurement_type = str(
+                        rule.get("measurement_type") or ""
+                    ).upper()
+
+                    observed_value = str(
+                        observation.get("Valor") or ""
+                    ).strip().lower()
+
+                    observed_intensity = str(
+                        observation.get("Intensidade") or ""
+                    ).strip().upper()
+
+                    if measurement_type == "CHECKBOX":
+                        if observed_value != "presente":
+                            continue
+                    else:
+                        if (
+                            observed_value == "ausente"
+                            or observed_intensity == "AUSENTE"
+                        ):
+                            continue
 
                 # PROHIBITED: só aparece se foi percebido.
                 if rule_type == "PROHIBITED":
