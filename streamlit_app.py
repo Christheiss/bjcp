@@ -295,18 +295,6 @@ if motor is None:
 
 try:
     excel = pd.ExcelFile(db)
-    rule_sheet = next(
-        (
-            s for s in ["Regras_1A_v2", "Regras_1A"]
-            if s in excel.sheet_names
-        ),
-        None,
-    )
-
-    if rule_sheet:
-        rules = load_sheet(db, rule_sheet)
-    else:
-        rules = pd.DataFrame()
 
 except Exception as e:
     st.error(f"Erro ao ler o banco: {e}")
@@ -355,6 +343,17 @@ with st.sidebar:
         "do modelo do aplicativo."
     )
 
+# Carrega SOMENTE as regras do estilo atualmente selecionado.
+if "Regras_Estilo_v6" in excel.sheet_names:
+    all_rules = load_sheet(db, "Regras_Estilo_v6")
+    if "Código" in all_rules.columns:
+        rules = all_rules[
+            all_rules["Código"].astype(str).str.strip().eq(selected_style_code)
+        ].copy()
+    else:
+        rules = pd.DataFrame()
+else:
+    rules = pd.DataFrame()
 
 # =========================================================
 # AVALIAÇÃO
@@ -1164,9 +1163,7 @@ with tab_possibilidades:
         try:
             # Procura regras estruturadas por estilo.
             possible_rule_sheets = [
-                "Regras_Estilo_v3",
-                "Regras_1A_v2",
-                "Regras_1A",
+                "Regras_Estilo_v6",
             ]
             rules_for_possibilities = None
             rule_sheet_used = None
@@ -1184,10 +1181,21 @@ with tab_possibilidades:
                         rule_sheet_used = sheet
                         break
 
+            structured_styles = 0
+            if rules_for_possibilities is not None:
+                style_col = next(
+                    (c for c in ["Código", "Codigo", "Código_Estilo", "Estilo", "Style"]
+                     if c in rules_for_possibilities.columns),
+                    None,
+                )
+                if style_col:
+                    structured_styles = rules_for_possibilities[style_col].dropna().astype(str).nunique()
+
             if (
                 motor is not None
                 and hasattr(motor, "rank_styles")
                 and rules_for_possibilities is not None
+                and structured_styles >= 3
             ):
                 ranked = motor.rank_styles(observations, rules_for_possibilities)
                 fonte = f"regras eliminatórias ({rule_sheet_used})"
@@ -1237,6 +1245,12 @@ with tab_resultados:
         "Aqui aparecerão a compatibilidade, os desvios encontrados e o "
         "comparativo entre o que você percebeu e o que o estilo espera."
     )
+
+    if rules.empty:
+        st.warning(
+            f"Este banco ainda não possui regras estruturadas para {selected_style_code}. "
+            "O aplicativo não vai usar regras de outro estilo para preencher o feedback."
+        )
 
     if st.button(
         "🍺 Calcular compatibilidade",
@@ -1405,7 +1419,7 @@ with tab_resultados:
             if result is not None:
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Itens compatíveis", result["display"])
-                c2.metric("Estilo", "1A")
+                c2.metric("Estilo", selected_style_code)
                 c3.metric("Itens analisados", len(feedback_results))
 
             render_feedback(feedback_results)
