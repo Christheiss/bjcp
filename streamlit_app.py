@@ -52,6 +52,106 @@ def load_sheet(path, sheet_name):
     return pd.read_excel(path, sheet_name=sheet_name)
 
 
+def rank_by_perfil_sensorail(observations, perfil_df):
+    """Fallback de proximidade usando a camada Perfil_Sensorial do banco.
+    Não elimina estilos; serve para sempre retornar as 3 possibilidades mais próximas
+    enquanto as regras eliminatórias completas não estiverem estruturadas para todos os estilos.
+    """
+    if perfil_df is None or perfil_df.empty:
+        return []
+
+    dim_map = {
+        "Aroma": "Aroma",
+        "Sabor": "Flavor",
+        "Sensação na boca": "Mouthfeel",
+        "Aparência": "Appearance",
+    }
+
+    obs = []
+    for o in observations:
+        valor = str(o.get("Valor", "")).strip().lower()
+        intensidade = str(o.get("Intensidade", "")).strip()
+        if o.get("Tipo") == "CHECKBOX":
+            if valor != "presente":
+                continue
+            intensidade_num = 5.0
+        elif o.get("Tipo") == "RANGE":
+            if intensidade == "AUSENTE":
+                continue
+            intensidade_num = {
+                "VERY_LOW": 1.5, "LOW": 2.5, "MEDIUM_LOW": 3.5,
+                "MEDIUM": 5.0, "MEDIUM_HIGH": 6.0, "HIGH": 7.5, "VERY_HIGH": 9.0
+            }.get(intensidade, 5.0)
+        else:
+            continue
+        obs.append({
+            "dim": dim_map.get(o.get("Seção")),
+            "term": valor,
+            "intensity": intensidade_num,
+        })
+
+    if not obs:
+        return []
+
+    df = perfil_df.copy()
+    for c in ["Código", "Estilo", "Parâmetro", "Termo PT", "Status"]:
+        if c not in df.columns:
+            return []
+    df["_dim"] = df["Parâmetro"].astype(str)
+    df["_term"] = df["Termo PT"].astype(str).str.strip().str.lower()
+    df["_status"] = df["Status"].astype(str).str.lower()
+    df["_int"] = pd.to_numeric(df["Intensidade 0-10"], errors="coerce") if "Intensidade 0-10" in df.columns else 5.0
+
+    results = []
+    for (codigo, estilo), g in df.groupby(["Código", "Estilo"], dropna=False):
+        score = 0.0
+        matched = 0
+        evaluated = 0
+        details = []
+
+        for ob in obs:
+            if not ob["dim"]:
+                continue
+            candidates = g[g["_dim"].str.lower() == ob["dim"].lower()]
+            if candidates.empty:
+                continue
+            evaluated += 1
+            # correspondência por termo PT; também aceita ocorrência parcial
+            exact = candidates[candidates["_term"] == ob["term"]]
+            if exact.empty:
+                exact = candidates[candidates["_term"].str.contains(ob["term"], regex=False, na=False) |
+                                      candidates["_term"].apply(lambda x: ob["term"] in x if isinstance(x, str) else False)]
+            if not exact.empty:
+                row = exact.iloc[0]
+                base = {"typical": 1.0, "optional": 0.85, "permitted/variable": 0.75, "prohibited/fault": -1.0}.get(row["_status"], 0.7)
+                ref_int = row["_int"]
+                if pd.notna(ref_int):
+                    closeness = max(0.0, 1.0 - abs(ob["intensity"] - float(ref_int)) / 10.0)
+                else:
+                    closeness = 0.7
+                score += base * closeness
+                matched += 1
+                details.append(row["Termo PT"])
+            else:
+                score -= 0.15
+
+        # pequena preferência por estilos que explicam mais das observações
+        coverage = matched / max(1, evaluated)
+        final_score = score + coverage * 0.5
+        results.append({
+            "Código": str(codigo),
+            "Estilo": str(estilo),
+            "score": final_score,
+            "matched": matched,
+            "evaluated": evaluated,
+            "display": f"{matched} / {max(1, evaluated)} características encontradas",
+            "details": details,
+        })
+
+    results.sort(key=lambda x: (x["score"], x["matched"], x["evaluated"]), reverse=True)
+    return results[:3]
+
+
 # =========================================================
 # CONFIGURAÇÃO SENSORIAL
 # =========================================================
@@ -1090,35 +1190,31 @@ with tab_possibilidades:
                 and rules_for_possibilities is not None
             ):
                 ranked = motor.rank_styles(observations, rules_for_possibilities)
-
-                if not ranked:
-                    st.warning(
-                        "Nenhum estilo passou pelos critérios eliminatórios "
-                        "com os dados sensoriais informados."
-                    )
-                else:
-                    st.caption(
-                        f"Após os filtros eliminatórios, {len(ranked)} estilo(s) "
-                        f"permaneceram. Fonte das regras: {rule_sheet_used}."
-                    )
-
-                    for i, item in enumerate(ranked[:3], start=1):
-                        st.markdown(
-                            f"### {i}. {item['Código']} — {item['Estilo']}"
-                        )
-                        st.success(
-                            f"**{item['display']}** parâmetros compatíveis"
-                        )
-                        if i < min(3, len(ranked)):
-                            st.divider()
-
+                fonte = f"regras eliminatórias ({rule_sheet_used})"
             else:
-                st.warning(
-                    "O banco atual ainda não possui regras estruturadas por estilo "
-                    "suficientes para aplicar o filtro eliminatório aos 128 estilos. "
-                    "A aba continuará disponível, mas o ranking completo depende "
-                    "do cadastro dessas regras."
+                # O banco v31 já possui Perfil_Sensorial para praticamente todos os estilos,
+                # então não deixamos a aba vazia enquanto a camada eliminatória é expandida.
+                perfil = load_sheet(db, "Perfil_Sensorial") if "Perfil_Sensorial" in excel.sheet_names else pd.DataFrame()
+                ranked = rank_by_perfil_sensorail(observations, perfil)
+                fonte = "Perfil_Sensorial BJCP 2021 (proximidade)"
+
+            if not ranked:
+                st.info(
+                    "Preencha pelo menos uma característica sensorial como presente "
+                    "ou uma intensidade acima de Ausente para gerar as 3 possibilidades."
                 )
+            else:
+                st.caption(
+                    f"3 possibilidades mais próximas pela fonte: {fonte}. "
+                    "Esta etapa de proximidade não substitui o filtro eliminatório completo."
+                )
+                for i, item in enumerate(ranked[:3], start=1):
+                    st.markdown(f"### {i}. {item['Código']} — {item['Estilo']}")
+                    st.success(f"**{item['display']}**")
+                    if item.get("details"):
+                        st.caption("Correspondências: " + ", ".join(dict.fromkeys(item["details"])))
+                    if i < min(3, len(ranked)):
+                        st.divider()
 
         except Exception as e:
             st.error(f"Erro ao calcular possibilidades: {e}")
