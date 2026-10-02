@@ -18,6 +18,8 @@ DB_CANDIDATES = [
 ]
 
 MOTOR_CANDIDATES = [
+    BASE / "motor_matching_v5_eliminatorio.py",
+    DATA_DIR / "motor_matching_v5_eliminatorio.py",
     BASE / "motor_matching_v4_contagem.py",
     DATA_DIR / "motor_matching_v4_contagem.py",
     BASE / "motor_matching_v3_generico.py",
@@ -261,13 +263,14 @@ st.header("1. Avaliação sensorial")
 
 observations = []
 
-tab_aroma, tab_aparencia, tab_sabor, tab_boca, tab_falhas, tab_resultados = st.tabs([
+tab_aroma, tab_aparencia, tab_sabor, tab_boca, tab_falhas, tab_resultados, tab_possibilidades = st.tabs([
     "🌸 Aroma",
     "👁️ Aparência",
     "👅 Sabor",
     "💧 Sensação na boca",
     "⚠️ Falhas / Off-flavors",
     "📊 Resultados",
+    "🔎 Possibilidades",
 ])
 
 
@@ -1027,6 +1030,99 @@ def render_feedback(results):
                 continue
             else:
                 st.info(text + message)
+
+
+# =========================================================
+# POSSIBILIDADES — 3 ESTILOS MAIS PRÓXIMOS
+# =========================================================
+
+with tab_possibilidades:
+    st.subheader("🔎 Possibilidades")
+    st.info(
+        "Primeiro o sistema elimina estilos que falham em critérios eliminatórios. "
+        "Só depois compara os parâmetros restantes para encontrar as 3 combinações mais próximas."
+    )
+
+    st.markdown(
+        """
+        **Critérios eliminatórios**
+        - 🔴 REQUIRED não atendido → estilo eliminado
+        - 🔴 UNEXPECTED detectado → estilo eliminado
+        - 🔴 PROHIBITED detectado → estilo eliminado
+
+        Depois disso, são analisados os parâmetros **OPTIONAL** e demais características
+        compatíveis para ordenar as possibilidades.
+        """
+    )
+
+    if st.button(
+        "🔎 Encontrar 3 estilos mais próximos",
+        type="primary",
+        use_container_width=True,
+        key="btn_possibilidades",
+    ):
+        try:
+            # Procura regras estruturadas por estilo.
+            possible_rule_sheets = [
+                "Regras_Estilo_v3",
+                "Regras_1A_v2",
+                "Regras_1A",
+            ]
+            rules_for_possibilities = None
+            rule_sheet_used = None
+
+            for sheet in possible_rule_sheets:
+                if sheet in excel.sheet_names:
+                    candidate = load_sheet(db, sheet)
+                    # Só usa a planilha se ela realmente tiver uma coluna de estilo.
+                    style_cols = [
+                        c for c in ["Código", "Codigo", "Código_Estilo", "Estilo", "Style"]
+                        if c in candidate.columns
+                    ]
+                    if style_cols:
+                        rules_for_possibilities = candidate
+                        rule_sheet_used = sheet
+                        break
+
+            if (
+                motor is not None
+                and hasattr(motor, "rank_styles")
+                and rules_for_possibilities is not None
+            ):
+                ranked = motor.rank_styles(observations, rules_for_possibilities)
+
+                if not ranked:
+                    st.warning(
+                        "Nenhum estilo passou pelos critérios eliminatórios "
+                        "com os dados sensoriais informados."
+                    )
+                else:
+                    st.caption(
+                        f"Após os filtros eliminatórios, {len(ranked)} estilo(s) "
+                        f"permaneceram. Fonte das regras: {rule_sheet_used}."
+                    )
+
+                    for i, item in enumerate(ranked[:3], start=1):
+                        st.markdown(
+                            f"### {i}. {item['Código']} — {item['Estilo']}"
+                        )
+                        st.success(
+                            f"**{item['display']}** parâmetros compatíveis"
+                        )
+                        if i < min(3, len(ranked)):
+                            st.divider()
+
+            else:
+                st.warning(
+                    "O banco atual ainda não possui regras estruturadas por estilo "
+                    "suficientes para aplicar o filtro eliminatório aos 128 estilos. "
+                    "A aba continuará disponível, mas o ranking completo depende "
+                    "do cadastro dessas regras."
+                )
+
+        except Exception as e:
+            st.error(f"Erro ao calcular possibilidades: {e}")
+            st.exception(e)
 
 
 # =========================================================
