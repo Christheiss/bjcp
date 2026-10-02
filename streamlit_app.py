@@ -217,15 +217,32 @@ except Exception as e:
 with st.sidebar:
     st.header("🍺 BJCP Style Matcher")
 
-    st.selectbox(
+    # Carrega todos os estilos disponíveis na aba Estilos do banco.
+    styles_df = load_sheet(db, "Estilos") if "Estilos" in excel.sheet_names else pd.DataFrame()
+
+    if not styles_df.empty and "Código" in styles_df.columns and "Estilo" in styles_df.columns:
+        style_options = [
+            f"{str(row['Código']).strip()} — {str(row['Estilo']).strip()}"
+            for _, row in styles_df.iterrows()
+            if pd.notna(row["Código"]) and pd.notna(row["Estilo"])
+        ]
+    else:
+        style_options = ["1A — American Light Lager"]
+
+    selected_style = st.selectbox(
         "Estilo em avaliação",
-        ["1A — American Light Lager"],
+        style_options,
+        index=0,
+        key="style_selector",
     )
+
+    selected_style_code = selected_style.split(" — ", 1)[0].strip()
 
     st.divider()
 
     st.write("**Banco de dados**")
     st.caption(db.name)
+    st.caption(f"{len(style_options)} estilos disponíveis")
 
     st.write("**Interface**")
     st.caption("Checklist sensorial BJCP")
