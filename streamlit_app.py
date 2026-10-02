@@ -846,17 +846,20 @@ if step == "Aroma":
     # A intensidade é única para o grupo; as nuances são apenas percepções.
     # Os nomes abaixo precisam corresponder exatamente à coluna Grupo_UI
     # da aba Vocabulario_Aroma_UI.
+    # Valores reais da coluna Grupo_UI do banco.
+    # O título exibido ao usuário é separado do nome interno do grupo.
     aroma_groups = {
-        "Lúpulo": "Aroma — Lúpulo",
-        "Malte": "Aroma — Malte",
-        "Fermentação": "Aroma — Fermentação",
+        "Lúpulo": ("🌿 Lúpulo", "Aroma — Lúpulo"),
+        "Malte": ("🌾 Malte", "Aroma — Malte"),
+        "Fermentação": ("🍺 Fermentação / levedura", "Aroma — Fermentação"),
     }
 
-    def render_aroma_nuance_box(group):
+    def render_aroma_nuance_box(group_data):
         if aroma_ui.empty:
             return
 
-        df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
+        db_group, display_group = group_data
+        df = aroma_ui[aroma_ui["Grupo_UI"] == db_group].copy()
         if df.empty:
             return
 
@@ -865,22 +868,22 @@ if step == "Aroma":
             df["Rótulo_PT"].astype(str),
             df["Parametro_ID"].astype(str)
         ))
-        previous = st.session_state.aroma_selected.get(group, [])
+        previous = st.session_state.aroma_selected.get(db_group, [])
 
-        # Abre automaticamente quando já existem nuances selecionadas.
         with st.expander(
-            f"{group} · {len(options)} descritores",
+            f"{display_group} · {len(options)} descritores",
             expanded=bool(previous),
         ):
             selected = st.multiselect(
                 "Nuances percebidas",
                 options=options,
                 default=[x for x in previous if x in options],
-                key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}",
+                key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+', '_', db_group)}",
             )
-            st.session_state.aroma_selected[group] = selected
+            st.session_state.aroma_selected[db_group] = selected
 
-            # Selecionar uma nuance = presença. Não existe intensidade individual.
+            # A nuance selecionada significa apenas presença.
+            # A intensidade continua sendo determinada exclusivamente pelo slider.
             for label in selected:
                 st.session_state.aroma_values[option_to_id[label]] = 1
 
