@@ -460,11 +460,11 @@ if "aroma_values" not in st.session_state:
 
 if "appearance_main" not in st.session_state:
     st.session_state.appearance_main = {
-        "Limpidez": 5,
-        "Turbidez": 0,
-        "Formação da espuma": 5,
+        "Cor": 5,
+        "Cor da espuma": 5,
+        "Tamanho da espuma": 5,
         "Retenção da espuma": 5,
-        "Pernas / viscosidade visual": 0,
+        "Limpidez": 5,
     }
 if "appearance_selected" not in st.session_state:
     st.session_state.appearance_selected = {}
@@ -568,7 +568,8 @@ def _canonical_pid_from_ui(dim, row):
             if k in term: return p
         return None
     if dim == "Aparência":
-        return str(row.get("Parametro_ID", "")) if str(row.get("Parametro_ID", "")).startswith("P") else None
+        pid = str(row.get("Parametro_ID", ""))
+        return pid if pid.startswith("P") else None
     return None
 
 MAIN_TO_CANONICAL = {
@@ -577,7 +578,9 @@ MAIN_TO_CANONICAL = {
     "P003": ["P019", "P020", "P021", "P026"],           # fermentação/aroma
     "P004": ["P054"],                         # cor
     "P005": ["P053"],                         # limpidez
-    "P006": ["P057"],                         # formação/tamanho da espuma
+    "P006": ["P057"],                         # tamanho da espuma
+    "P056": ["P056"],                         # retenção da espuma
+    "P059": ["P059"],                         # cor da espuma
     "P007": ["P038"],                         # sabor de lúpulo
     "P008": ["P039", "P033", "P034", "P041"],            # sabor de malte
     "P009": ["P036", "P037", "P040"],                     # fermentação/sabor
@@ -600,8 +603,11 @@ def build_user_vector():
         "Aroma — Lúpulo": ("P001", "Lúpulo"),
         "Aroma — Malte": ("P002", "Malte"),
         "Aroma — Fermentação": ("P003", "Fermentação"),
+        "Aparência — Cor": ("P004", "Cor"),
+        "Aparência — Cor da espuma": ("P059", "Cor da espuma"),
+        "Aparência — Tamanho da espuma": ("P006", "Tamanho da espuma"),
+        "Aparência — Retenção da espuma": ("P056", "Retenção da espuma"),
         "Aparência — Limpidez": ("P005", "Limpidez"),
-        "Aparência — Espuma": ("P006", "Formação da espuma"),
         "Sabor — Lúpulo": ("P007", "Lúpulo"),
         "Sabor — Malte": ("P008", "Malte"),
         "Sabor — Fermentação": ("P009", "Fermentação"),
@@ -617,8 +623,11 @@ def build_user_vector():
     if "Aroma — Lúpulo" in ev: v["P001"] = st.session_state.aroma_main.get("Lúpulo", 0)
     if "Aroma — Malte" in ev: v["P002"] = st.session_state.aroma_main.get("Malte", 0)
     if "Aroma — Fermentação" in ev: v["P003"] = st.session_state.aroma_main.get("Fermentação", 0)
+    if "Aparência — Cor" in ev: v["P004"] = st.session_state.appearance_main.get("Cor", 0)
+    if "Aparência — Cor da espuma" in ev: v["P059"] = st.session_state.appearance_main.get("Cor da espuma", 0)
+    if "Aparência — Tamanho da espuma" in ev: v["P006"] = st.session_state.appearance_main.get("Tamanho da espuma", 0)
+    if "Aparência — Retenção da espuma" in ev: v["P056"] = st.session_state.appearance_main.get("Retenção da espuma", 0)
     if "Aparência — Limpidez" in ev: v["P005"] = st.session_state.appearance_main.get("Limpidez", 0)
-    if "Aparência — Espuma" in ev: v["P006"] = st.session_state.appearance_main.get("Formação da espuma", 0)
     if "Sabor — Lúpulo" in ev: v["P007"] = st.session_state.flavor_main.get("Lúpulo", 0)
     if "Sabor — Malte" in ev: v["P008"] = st.session_state.flavor_main.get("Malte", 0)
     if "Sabor — Fermentação" in ev: v["P009"] = st.session_state.flavor_main.get("Fermentação", 0)
@@ -969,153 +978,69 @@ if step == "Aroma":
 # -----------------------------
 elif step == "Aparência":
     st.info(
-        "Na Aparência, alguns atributos são categóricos (como a cor) e outros "
-        "podem ser registrados em intensidade. O SRM é uma referência de densidade "
-        "de cor; o próprio BJCP alerta que as condições de visualização afetam a percepção."
+        "Os cinco controles principais registram a avaliação operacional da aparência. "
+        "A escala 0–10 é criada pelo BeerSense e não é uma escala numérica oficial do BJCP. "
+        "As nuances são apenas presença/ausência e refinam o perfil."
     )
     st.header("APARÊNCIA")
 
-    # Copo visual
-    st.markdown("### 🍺 Aparência do copo")
-
-    srm = st.number_input(
-        "SRM",
-        min_value=0.0,
-        max_value=50.0,
-        value=float(st.session_state.appearance_srm or 0),
-        step=0.5,
-        key="appearance_srm_input",
-    )
-    st.session_state.appearance_srm = srm if srm > 0 else None
-
-    # Cor da espuma é categórica; vem diretamente do vocabulário da planilha.
-    foam_color_df = appearance_ui[
-        (appearance_ui["Grupo_UI"] == "🫧 Espuma — cor") &
-        (appearance_ui["Controle_UI"] == "espuma_cor")
-    ]
-    foam_options = (
-        foam_color_df["Rótulo_PT"].drop_duplicates().astype(str).tolist()
-        if not foam_color_df.empty
-        else ["espuma branca", "espuma branco-quebrada", "bege claro", "bege", "bege pálido"]
-    )
-
-    foam_selected = st.selectbox(
-        "Cor da espuma",
-        ["Espuma branca"] + foam_options,
-        key="appearance_foam_color_select",
-    )
-    foam_selected = "" if foam_selected == "Espuma branca" else foam_selected
-
-    head_size = int(st.session_state.appearance_main["Formação da espuma"])
-    render_beer_glass(srm, head_size, foam_selected or "espuma branca")
-
-    st.caption(
-        f"**{srm:g} SRM — {color_name_from_srm_ui(srm)}** · "
-        f"Colarinho: **{head_size}/10 — {label_intensity(head_size, True)}**"
-    )
-
-    st.divider()
-
-    # Head
-    st.markdown("### 🫧 Espuma")
-    c1, c2 = st.columns(2)
-    with c1:
-        v = st.slider(
-            "Tamanho do colarinho",
-            0, 10, int(st.session_state.appearance_main["Formação da espuma"]), 1,
-            key="appearance_head_size", on_change=mark_main_evaluated, args=("Aparência — Espuma",)
-        )
-        st.session_state.appearance_main["Formação da espuma"] = v
-        st.caption(
-            f"**{v}/10 — {label_intensity(v, True)}** · "
-            "controla somente o tamanho do colarinho no copo"
-        )
-    with c2:
-        v = st.slider(
-            "Retenção da espuma",
-            0, 10, int(st.session_state.appearance_main["Retenção da espuma"]), 1,
-            key="appearance_head_retention"
-        )
-        st.session_state.appearance_main["Retenção da espuma"] = v
-        st.caption(
-            f"**{v}/10 — {label_intensity(v, True)}** · "
-            "registrada separadamente; não altera o tamanho do colarinho"
-        )
-
-    # Head
-    st.markdown("### 🫧 Espuma")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.caption(
-            f"**{st.session_state.appearance_main['Formação da espuma']}/10 — "
-            f"{label_intensity(st.session_state.appearance_main['Formação da espuma'], True)}** · "
-            "controla somente o tamanho do colarinho no copo"
-        )
-        st.session_state.appearance_main["Retenção da espuma"] = v
-        st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
-
-    # Legs
-    st.markdown("### 💧 Pernas / viscosidade visual")
-    v = st.slider(
-        "Pernas / presença de gotículas",
-        0, 10, int(st.session_state.appearance_main["Pernas / viscosidade visual"]), 1,
-        key="appearance_legs"
-    )
-    st.session_state.appearance_main["Pernas / viscosidade visual"] = v
+    st.markdown("### 🎨 Cor")
+    v = st.slider("Cor", 0, 10, int(st.session_state.appearance_main["Cor"]), 1, key="appearance_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor",))
+    st.session_state.appearance_main["Cor"] = v
     st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
-    st.caption("O BJCP observa que pernas não são indicador de qualidade; podem indicar maior álcool, açúcar ou glicerol.")
+
+    st.markdown("### 🫧 Cor da espuma")
+    v = st.slider("Cor da espuma", 0, 10, int(st.session_state.appearance_main["Cor da espuma"]), 1, key="appearance_foam_color_slider", on_change=mark_main_evaluated, args=("Aparência — Cor da espuma",))
+    st.session_state.appearance_main["Cor da espuma"] = v
+    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+
+    st.markdown("### 🫧 Tamanho da espuma")
+    v = st.slider("Tamanho da espuma", 0, 10, int(st.session_state.appearance_main["Tamanho da espuma"]), 1, key="appearance_head_size", on_change=mark_main_evaluated, args=("Aparência — Tamanho da espuma",))
+    st.session_state.appearance_main["Tamanho da espuma"] = v
+    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+
+    st.markdown("### 🫧 Retenção da espuma")
+    v = st.slider("Retenção da espuma", 0, 10, int(st.session_state.appearance_main["Retenção da espuma"]), 1, key="appearance_head_retention", on_change=mark_main_evaluated, args=("Aparência — Retenção da espuma",))
+    st.session_state.appearance_main["Retenção da espuma"] = v
+    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
+
+    st.markdown("### 🔎 Limpidez")
+    v = st.slider("Limpidez", 0, 10, int(st.session_state.appearance_main["Limpidez"]), 1, key="appearance_clarity", on_change=mark_main_evaluated, args=("Aparência — Limpidez",))
+    st.session_state.appearance_main["Limpidez"] = v
+    st.caption(f"**{v}/10 — {label_intensity(v, True)}**")
 
     st.divider()
-
-    # Nuances
-    st.markdown("### Identificar características visuais")
-    st.caption("Use esta seção para registrar descritores específicos como renda belga, bolhas finas, cristalina, turva, etc.")
+    st.markdown("### 👁️ Nuances visuais")
+    st.caption("Selecione somente o que foi percebido. Nuances não possuem slider individual.")
 
     if appearance_ui.empty:
         st.warning("A aba Vocabulario_Aparencia_UI não foi encontrada.")
     else:
-        groups = [
-            "🫧 Espuma — formação e textura",
-            "🫧 Espuma — formação e retenção",
-            "🫧 Espuma — retenção",
-            "🫧 Espuma — renda",
-            "🔎 Limpidez",
-            "🌫️ Turbidez",
-        ]
+        groups = ["👁️ Nuances visuais"]
         for group in groups:
-            df = appearance_ui[appearance_ui["Grupo_UI"] == group].copy()
+            df = appearance_ui[(appearance_ui["Grupo_UI"] == group) & (appearance_ui["Ativo_UI"] == True)].copy()
             if df.empty:
                 continue
-            options = df["Rótulo_PT"].astype(str).tolist()
-            id_map = dict(zip(df["Rótulo_PT"].astype(str), df["Aparencia_ID"].astype(str)))
+            options = df["Rótulo_PT"].drop_duplicates().astype(str).tolist()
             prev = st.session_state.appearance_selected.get(group, [])
-
-            with st.expander(f"{group} · {len(options)} descritores"):
-                selected = st.multiselect(
-                    "Características percebidas",
-                    options,
-                    default=[x for x in prev if x in options],
-                    key=f"appearance_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
-                )
-                st.session_state.appearance_selected[group] = selected
-                # Nuances são presença/ausência. A intensidade fica nos parâmetros principais.
-                for label in selected:
-                    aid = id_map[label]
-                    st.session_state.appearance_values[aid] = 1
+            selected = st.multiselect(
+                "Características percebidas", options,
+                default=[x for x in prev if x in options],
+                key="appearance_visual_nuances"
+            )
+            st.session_state.appearance_selected[group] = selected
+            id_map = dict(zip(df["Rótulo_PT"].astype(str), df["Aparencia_ID"].astype(str)))
+            for label in selected:
+                st.session_state.appearance_values[id_map[label]] = 1
 
     st.divider()
     st.subheader("Resumo da Aparência")
-
-    st.write(f"**Cor:** {st.session_state.appearance_color or 'não informada'}")
-    if st.session_state.appearance_srm:
-        st.write(f"**SRM medido:** {st.session_state.appearance_srm:g}")
-    if st.session_state.appearance_highlights:
-        st.write(f"**Reflexos:** {', '.join(st.session_state.appearance_highlights)}")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Limpidez", f"{st.session_state.appearance_main['Limpidez']}/10")
-    c2.metric("Espuma", f"{st.session_state.appearance_main['Formação da espuma']}/10")
-    c3.metric("Retenção", f"{st.session_state.appearance_main['Retenção da espuma']}/10")
+    c1,c2,c3,c4,c5 = st.columns(5)
+    c1.metric("Cor", f"{st.session_state.appearance_main['Cor']}/10")
+    c2.metric("Espuma — cor", f"{st.session_state.appearance_main['Cor da espuma']}/10")
+    c3.metric("Espuma — tamanho", f"{st.session_state.appearance_main['Tamanho da espuma']}/10")
+    c4.metric("Espuma — retenção", f"{st.session_state.appearance_main['Retenção da espuma']}/10")
+    c5.metric("Limpidez", f"{st.session_state.appearance_main['Limpidez']}/10")
 # -----------------------------
 # SABOR
 # -----------------------------
