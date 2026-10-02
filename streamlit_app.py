@@ -1042,12 +1042,37 @@ with tab_resultados:
         try:
             rule_records = rules.to_dict("records")
 
-            # O motor continua calculando a pontuação.
+            # Executa o motor e normaliza o retorno para o formato:
+            # result = {"matched": ..., "evaluated": ..., "display": "..."}
             if motor is not None and hasattr(motor, "calculate"):
-                result, details = motor.calculate(
-                    observations,
-                    rule_records,
-                )
+                motor_output = motor.calculate(observations, rule_records)
+
+                # Motor v4: retorna (result_dict, details)
+                if (
+                    isinstance(motor_output, tuple)
+                    and len(motor_output) == 2
+                    and isinstance(motor_output[0], dict)
+                ):
+                    result, details = motor_output
+
+                # Permite também um motor que retorne apenas o dict.
+                elif isinstance(motor_output, dict):
+                    result = motor_output
+                    details = motor_output.get("details", [])
+
+                # Compatibilidade com versões antigas.
+                elif isinstance(motor_output, tuple) and len(motor_output) == 2:
+                    legacy_score, details = motor_output
+                    result = {
+                        "matched": 0,
+                        "evaluated": 0,
+                        "display": str(legacy_score),
+                    }
+                else:
+                    raise TypeError(
+                        f"Formato de retorno do motor não reconhecido: "
+                        f"{type(motor_output).__name__}"
+                    )
             else:
                 st.warning(
                     "Motor externo não encontrado. Mostrando apenas o feedback "
