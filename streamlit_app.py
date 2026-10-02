@@ -865,11 +865,25 @@ if step == "Aroma":
         if df.empty:
             return
 
-        options = df["Rótulo_PT"].astype(str).tolist()
-        option_to_id = dict(zip(
-            df["Rótulo_PT"].astype(str),
-            df["Parametro_ID"].astype(str)
-        ))
+        # Lúpulo tem uma lista fechada de 10 opções definidas pelo usuário.
+        if db_group == "🌿 Lúpulo":
+            hop_allowed = [
+                "Cítrico", "Resinoso", "Pinho", "Floral", "Picante",
+                "Herbal", "Lúpulo Velho", "Frutado", "Fresco", "Lúpulos nobre"
+            ]
+            options = [x for x in hop_allowed
+                       if not df[df["Rótulo_Canonico"].astype(str) == x].empty]
+            option_rows = {
+                label: df[df["Rótulo_Canonico"].astype(str) == label]
+                for label in options
+            }
+        else:
+            options = df["Rótulo_PT"].astype(str).tolist()
+            option_rows = {
+                label: df[df["Rótulo_PT"].astype(str) == label]
+                for label in options
+            }
+
         previous = st.session_state.aroma_selected.get(db_group, [])
 
         with st.expander(
@@ -887,7 +901,11 @@ if step == "Aroma":
             # A nuance selecionada significa apenas presença.
             # A intensidade continua sendo determinada exclusivamente pelo slider.
             for label in selected:
-                st.session_state.aroma_values[option_to_id[label]] = 1
+                rows = option_rows.get(label)
+                if rows is None:
+                    continue
+                for _, row in rows.iterrows():
+                    st.session_state.aroma_values[str(row["Parametro_ID"])] = 1
 
     # LÚPULO
     value = st.slider(
