@@ -53,103 +53,296 @@ def load_sheet(path, sheet_name):
 
 
 def rank_by_perfil_sensorail(observations, perfil_df):
-    """Fallback de proximidade usando a camada Perfil_Sensorial do banco.
-    Não elimina estilos; serve para sempre retornar as 3 possibilidades mais próximas
-    enquanto as regras eliminatórias completas não estiverem estruturadas para todos os estilos.
+    """Ranking de proximidade usando o Perfil_Sensorial.
+
+    Regras importantes:
+    - RANGE não é comparado pelo texto "alto/baixo"; é comparado pelo PARÂMETRO
+      e pela intensidade 0-10 do perfil.
+    - CHECKBOX é comparado pelo descritor percebido.
+    - A seção é normalizada sem diferenciar maiúsculas/minúsculas.
+    - Termos genéricos não podem, sozinhos, fazer todos os estilos empatarem.
     """
     if perfil_df is None or perfil_df.empty:
         return []
 
-    dim_map = {
-        "Aroma": "Aroma",
-        "Sabor": "Flavor",
-        "Sensação na boca": "Mouthfeel",
-        "Aparência": "Appearance",
-        "Final": "Final",
+    def norm(value):
+        s = str(value or "").strip().lower()
+        s = s.replace("ç", "c").replace("ã", "a").replace("á", "a")
+        s = s.replace("é", "e").replace("ê", "e").replace("í", "i")
+        s = s.replace("ó", "o").replace("ô", "o").replace("ú", "u")
+        s = re.sub(r"[^a-z0-9]+", " ", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    def section_norm(section):
+        s = norm(section)
+        aliases = {
+            "aroma": "aroma",
+            "sabor": "flavor",
+            "sensacao na boca": "mouthfeel",
+            "sensacao na boca": "mouthfeel",
+            "aparencia": "appearance",
+            "final": "mouthfeel",
+        }
+        return aliases.get(s, s)
+
+    # Parâmetros da interface -> conceitos que aparecem no Perfil_Sensorial.
+    parameter_aliases = {
+        "malte": ["malte", "cereal", "grainy", "pao", "caramelo", "tostado"],
+        "lupulo": ["lupulo", "hop", "hoppy"],
+        "esteres": ["esteres", "ester", "frutado"],
+        "fenóis": ["fenol", "especiaria"],
+        "fenóis": ["fenol", "especiaria"],
+        "dulcor": ["dulcor", "doce", "sweet"],
+        "amargor": ["amargor", "amargo", "bitterness", "bitter"],
+        "alcool": ["alcool", "alcohol", "aquecimento"],
+        "acidez": ["acidez", "acido", "sour", "sourness"],
+        "aspereza": ["aspereza", "adstringencia", "harsh"],
+        "corpo": ["corpo", "body"],
+        "carbonatacao": ["carbonatacao", "carbonation"],
+        "calor": ["calor", "aquecimento", "warmth"],
+        "cremosidade": ["cremosidade", "creamy", "creamy body"],
+        "adstringencia": ["adstringencia", "astringency", "harsh"],
+        "limpidez": ["limpidez", "clara", "clear", "brilhante"],
+        "tamanho colarinho": ["colarinho", "espuma", "head"],
+        "retencao colarinho": ["retencao", "persistence", "persistente"],
+        "equilibrio": ["equilibrio", "balance"],
     }
+
+    # Termos da interface -> termos comuns no banco.
+    term_aliases = {
+        "grao": ["grao", "cereal", "granulado"],
+        "citrico": ["citrico", "citrus"],
+        "terroso": ["terroso", "earthy"],
+        "floral": ["floral"],
+        "gramineo": ["gramineo", "grassy"],
+        "ervas": ["ervas", "herbal"],
+        "pinho": ["pinho", "pine", "resinoso", "resin"],
+        "condimento": ["condimento", "spice", "spicy"],
+        "frutado": ["frutado", "fruity"],
+        "berry": ["berry", "frutas vermelhas"],
+        "frutas secas": ["frutas secas", "dried fruit"],
+        "drupa": ["drupa", "stone fruit", "frutas de caroco"],
+        "fruta tropical": ["fruta tropical", "tropical fruit"],
+        "fruta escura": ["fruta escura", "dark fruit"],
+        "caramelo": ["caramelo", "caramel"],
+        "pao": ["pao", "bread", "bready"],
+        "tostado": ["tostado", "toast", "toasty"],
+        "torrado": ["torrado", "roasted"],
+        "queimado": ["queimado", "burnt"],
+        "especiaria": ["especiaria", "spice", "spicy"],
+        "fumaça": ["fumaca", "smoke", "smoky"],
+        "madeira": ["madeira", "oak", "wood"],
+        "seco": ["seco", "dry"],
+        "doce": ["doce", "sweet", "sweetness"],
+        "amargo": ["amargo", "bitter"],
+        "médio": ["medio", "medium"],
+        "picante": ["picante", "spicy"],
+    }
+
+    intensity_to_10 = {
+        "VERY_LOW": 1.0,
+        "LOW": 2.5,
+        "MEDIUM_LOW": 3.75,
+        "MEDIUM": 5.0,
+        "MEDIUM_HIGH": 6.25,
+        "HIGH": 7.5,
+        "VERY_HIGH": 9.5,
+    }
+
+    def best_checkbox_match(ob, g):
+        term = norm(ob["term"])
+        aliases = term_aliases.get(term, [term])
+        candidates = g[g["_term"].apply(
+            lambda x: any(a in x for a in aliases)
+        )]
+        if candidates.empty:
+            return None, 0.0
+
+        best = None
+        best_score = -1.0
+        for _, row in candidates.iterrows():
+            status = row["_status"]
+            base = {
+                "typical": 1.0,
+                "optional": 0.80,
+                "permitted/variable": 0.65,
+                "prohibited/fault": -1.0,
+            }.get(status, 0.55)
+            # Descritor explícito é mais importante que coincidência genérica.
+            if any(a == row["_term"] for a in aliases):
+                base += 0.15
+            if base > best_score:
+                best_score = base
+                best = row
+        return best, best_score
+
+    def best_range_match(ob, g):
+        parameter = norm(ob["parameter"])
+        obs_i = ob["intensity"]
+        aliases = parameter_aliases.get(parameter, [parameter])
+
+        # Primeiro tenta pela subcategoria, depois pelo termo.
+        def relevant(row):
+            sub = norm(row["_subcat"])
+            term = norm(row["_term"])
+            return any(a in sub or a in term for a in aliases)
+
+        candidates = g[g.apply(relevant, axis=1)]
+        if candidates.empty:
+            return None, 0.0
+
+        candidates = candidates[candidates["_int"].notna()]
+        if candidates.empty:
+            return None, 0.0
+
+        # Escolhe o registro mais próximo da intensidade observada.
+        candidates = candidates.copy()
+        candidates["_distance"] = (candidates["_int"] - obs_i).abs()
+        row = candidates.sort_values("_distance").iloc[0]
+        distance = float(row["_distance"])
+
+        closeness = max(0.0, 1.0 - distance / 10.0)
+        base = {
+            "typical": 1.0,
+            "optional": 0.80,
+            "permitted/variable": 0.65,
+            "prohibited/fault": -1.0,
+        }.get(row["_status"], 0.55)
+
+        return row, base * closeness
 
     obs = []
     for o in observations:
-        valor = str(o.get("Valor", "")).strip().lower()
-        intensidade = str(o.get("Intensidade", "")).strip()
-        if o.get("Tipo") == "CHECKBOX":
-            if valor != "presente":
+        tipo = str(o.get("Tipo") or "").upper()
+        section = section_norm(o.get("Seção"))
+        parameter = str(o.get("Parâmetro") or "").strip()
+        value = str(o.get("Valor") or "").strip()
+        intensity_code = str(o.get("Intensidade") or "").strip().upper()
+
+        if tipo == "CHECKBOX":
+            if norm(value) != "presente":
                 continue
-            intensidade_num = 5.0
-        elif o.get("Tipo") == "RANGE":
-            if intensidade == "AUSENTE":
+            obs.append({
+                "kind": "checkbox",
+                "section": section,
+                "parameter": parameter,
+                "term": parameter,
+                "intensity": 5.0,
+            })
+
+        elif tipo == "RANGE":
+            if intensity_code == "AUSENTE":
                 continue
-            intensidade_num = {
-                "VERY_LOW": 1.5, "LOW": 2.5, "MEDIUM_LOW": 3.5,
-                "MEDIUM": 5.0, "MEDIUM_HIGH": 6.0, "HIGH": 7.5, "VERY_HIGH": 9.0
-            }.get(intensidade, 5.0)
-        else:
-            continue
-        obs.append({
-            "dim": dim_map.get(o.get("Seção")),
-            "term": valor,
-            "intensity": intensidade_num,
-        })
+
+            # Cores são comparadas como categorias ordenadas, não como intensidade.
+            if parameter in ("Cor da cerveja", "Cor do colarinho"):
+                obs.append({
+                    "kind": "color",
+                    "section": section,
+                    "parameter": parameter,
+                    "term": value,
+                    "intensity": 5.0,
+                })
+            elif intensity_code in intensity_to_10:
+                obs.append({
+                    "kind": "range",
+                    "section": section,
+                    "parameter": parameter,
+                    "term": value,
+                    "intensity": intensity_to_10[intensity_code],
+                })
+
+        # Equilíbrio e outros eixos serão tratados separadamente quando
+        # a camada estruturada estiver completa.
 
     if not obs:
         return []
 
     df = perfil_df.copy()
-    for c in ["Código", "Estilo", "Parâmetro", "Termo PT", "Status"]:
-        if c not in df.columns:
-            return []
-    df["_dim"] = df["Parâmetro"].astype(str)
-    df["_term"] = df["Termo PT"].astype(str).str.strip().str.lower()
+    required = ["Código", "Estilo", "Parâmetro", "Termo PT", "Status"]
+    if any(c not in df.columns for c in required):
+        return []
+
+    df["_param"] = df["Parâmetro"].astype(str)
+    df["_param_norm"] = df["_param"].map(norm)
+    df["_term"] = df["Termo PT"].astype(str).map(norm)
+    df["_subcat"] = df["Subcategoria"].astype(str).map(norm) if "Subcategoria" in df.columns else ""
     df["_status"] = df["Status"].astype(str).str.lower()
-    df["_int"] = pd.to_numeric(df["Intensidade 0-10"], errors="coerce") if "Intensidade 0-10" in df.columns else 5.0
+    df["_int"] = pd.to_numeric(df["Intensidade 0-10"], errors="coerce") if "Intensidade 0-10" in df.columns else pd.NA
 
     results = []
+
     for (codigo, estilo), g in df.groupby(["Código", "Estilo"], dropna=False):
+        total_weight = 0.0
         score = 0.0
         matched = 0
-        evaluated = 0
         details = []
 
         for ob in obs:
-            if not ob["dim"]:
-                continue
-            candidates = g[g["_dim"].str.lower() == ob["dim"].lower()]
-            if candidates.empty:
-                continue
-            evaluated += 1
-            # correspondência por termo PT; também aceita ocorrência parcial
-            exact = candidates[candidates["_term"] == ob["term"]]
-            if exact.empty:
-                exact = candidates[candidates["_term"].str.contains(ob["term"], regex=False, na=False) |
-                                      candidates["_term"].apply(lambda x: ob["term"] in x if isinstance(x, str) else False)]
-            if not exact.empty:
-                row = exact.iloc[0]
-                base = {"typical": 1.0, "optional": 0.85, "permitted/variable": 0.75, "prohibited/fault": -1.0}.get(row["_status"], 0.7)
-                ref_int = row["_int"]
-                if pd.notna(ref_int):
-                    closeness = max(0.0, 1.0 - abs(ob["intensity"] - float(ref_int)) / 10.0)
-                else:
-                    closeness = 0.7
-                score += base * closeness
-                matched += 1
-                details.append(row["Termo PT"])
-            else:
-                score -= 0.15
+            # Restringe pela dimensão correta.
+            candidates = g[g["_param_norm"] == ob["section"]]
 
-        # pequena preferência por estilos que explicam mais das observações
-        coverage = matched / max(1, evaluated)
-        final_score = score + coverage * 0.5
+            if ob["kind"] == "checkbox":
+                row, local = best_checkbox_match(ob, candidates)
+                weight = 1.25
+
+            elif ob["kind"] == "range":
+                row, local = best_range_match(ob, candidates)
+                weight = 1.5
+
+            elif ob["kind"] == "color":
+                # Cor: usa termo + proximidade ordinal quando possível.
+                palette = (
+                    ["palha", "amarelo", "ouro", "ambar", "cobre", "marrom", "preto"]
+                    if ob["parameter"] == "Cor da cerveja"
+                    else ["branco", "marfim", "creme", "bege", "moreno", "marrom"]
+                )
+                observed = norm(ob["term"])
+                candidates2 = candidates[
+                    candidates["_term"].apply(lambda x: observed in x or x in observed)
+                ]
+                if candidates2.empty:
+                    row, local = None, 0.0
+                else:
+                    row = candidates2.iloc[0]
+                    local = {
+                        "typical": 1.0,
+                        "optional": 0.80,
+                        "permitted/variable": 0.65,
+                        "prohibited/fault": -1.0,
+                    }.get(row["_status"], 0.55)
+                weight = 1.25
+            else:
+                row, local, weight = None, 0.0, 1.0
+
+            if row is not None:
+                score += weight * local
+                total_weight += weight
+                if local > 0:
+                    matched += 1
+                    details.append(row["Termo PT"])
+            else:
+                # Falta de uma característica no perfil não é uma penalidade
+                # automática: BJCP não diz que "não mencionado" = proibido.
+                total_weight += weight * 0.25
+
+        normalized_score = score / max(total_weight, 1e-9)
+
         results.append({
             "Código": str(codigo),
             "Estilo": str(estilo),
-            "score": final_score,
+            "score": normalized_score,
             "matched": matched,
-            "evaluated": evaluated,
-            "display": f"{matched} / {max(1, evaluated)} características encontradas",
+            "evaluated": len(obs),
+            "display": f"{matched} / {len(obs)} observações compatíveis",
             "details": details,
         })
 
-    results.sort(key=lambda x: (x["score"], x["matched"], x["evaluated"]), reverse=True)
+    # Desempate por score real, depois cobertura e número de correspondências.
+    results.sort(
+        key=lambda x: (x["score"], x["matched"]),
+        reverse=True
+    )
     return results[:3]
 
 
