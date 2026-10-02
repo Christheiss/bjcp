@@ -847,8 +847,19 @@ if step == "Aroma":
         "as percepções que compõem essa intensidade."
     )
 
-    # As nuances selecionadas permanecem como tags visuais da interface.
-    # Não exibimos nível individual nem "presente".
+    # CSS: nuances selecionadas ficam verdes para comunicar "presente".
+    st.markdown("""
+    <style>
+    span[data-baseweb="tag"] {
+        background-color: #238636 !important;
+        color: white !important;
+    }
+    div[data-baseweb="select"]:has(span[data-baseweb="tag"]) {
+        border: 1px solid #238636 !important;
+        box-shadow: 0 0 0 1px rgba(35,134,54,.20) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
     # Mapa de grupos de nuances diretamente ligados aos três parâmetros principais.
     aroma_groups = {
@@ -1075,7 +1086,6 @@ elif step == "Aparência":
                 for label in selected:
                     aid = id_map[label]
                     st.session_state.appearance_values[aid] = 1
-                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo da Aparência")
@@ -1199,7 +1209,6 @@ elif step == "Sabor":
                 for label in selected:
                     sid = id_map[label]
                     st.session_state.flavor_values[sid] = 1
-                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo do Sabor")
@@ -1310,7 +1319,6 @@ elif step == "Sensação de boca":
                 for label in selected:
                     mid = id_map[label]
                     st.session_state.mouth_values[mid] = 1
-                    st.caption("✓ Presente")
 
     st.divider()
     st.subheader("Resumo da Sensação de Boca")
