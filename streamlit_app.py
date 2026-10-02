@@ -841,36 +841,19 @@ if step == "Aroma":
         "Ela não é uma escala oficial do BJCP."
     )
     st.header("AROMA")
-    st.markdown("### Intensidade geral")
-    st.caption(
-        "O slider define a intensidade principal. As nuances abaixo apenas identificam "
-        "as percepções que compõem essa intensidade."
-    )
-
-    # CSS: nuances selecionadas ficam verdes para comunicar "presente".
-    st.markdown("""
-    <style>
-    span[data-baseweb="tag"] {
-        background-color: #238636 !important;
-        color: white !important;
-    }
-    div[data-baseweb="select"]:has(span[data-baseweb="tag"]) {
-        border: 1px solid #238636 !important;
-        box-shadow: 0 0 0 1px rgba(35,134,54,.20) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # Mapa de grupos de nuances diretamente ligados aos três parâmetros principais.
+    # Layout do Aroma:
+    # slider principal → caixa de nuances → próximo slider.
+    # A intensidade é única para o grupo; as nuances são apenas percepções.
     aroma_groups = {
         "Lúpulo": "🌿 Lúpulo",
         "Malte": "🌾 Malte",
         "Fermentação": "🍺 Fermentação / levedura",
     }
 
-    def render_aroma_nuance_bar(group):
+    def render_aroma_nuance_box(group):
         if aroma_ui.empty:
             return
+
         df = aroma_ui[aroma_ui["Grupo_UI"] == group].copy()
         if df.empty:
             return
@@ -882,22 +865,24 @@ if step == "Aroma":
         ))
         previous = st.session_state.aroma_selected.get(group, [])
 
-        selected = st.multiselect(
-            "Nuances percebidas",
-            options=options,
-            default=[x for x in previous if x in options],
-            key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}"
-        )
-        st.session_state.aroma_selected[group] = selected
+        # Abre automaticamente quando já existem nuances selecionadas.
+        with st.expander(
+            f"Aroma — {group.replace('🌿 ', '').replace('🌾 ', '').replace('🍺 ', '')} · {len(options)} descritores",
+            expanded=bool(previous),
+        ):
+            selected = st.multiselect(
+                "Nuances percebidas",
+                options=options,
+                default=[x for x in previous if x in options],
+                key=f"aroma_select_{re.sub(r'[^a-zA-Z0-9]+','_',group)}",
+            )
+            st.session_state.aroma_selected[group] = selected
 
-        # Apenas presença. Não há intensidade individual para nuances.
-        for label in selected:
-            pid = option_to_id[label]
-            st.session_state.aroma_values[pid] = 1
+            # Selecionar uma nuance = presença. Não existe intensidade individual.
+            for label in selected:
+                st.session_state.aroma_values[option_to_id[label]] = 1
 
-    # ---------------------------------------------------------
     # LÚPULO
-    # ---------------------------------------------------------
     value = st.slider(
         "Lúpulo",
         0, 10,
@@ -905,17 +890,13 @@ if step == "Aroma":
         1,
         key="aroma_main_hop",
         on_change=mark_main_evaluated,
-        args=("Aroma — Lúpulo",)
+        args=("Aroma — Lúpulo",),
     )
     st.session_state.aroma_main["Lúpulo"] = value
     st.caption(f"**{value}/10 — {label_intensity(value)}**")
-    render_aroma_nuance_bar(aroma_groups["Lúpulo"])
+    render_aroma_nuance_box(aroma_groups["Lúpulo"])
 
-    st.markdown("<div style='height: 18px'></div>", unsafe_allow_html=True)
-
-    # ---------------------------------------------------------
     # MALTE
-    # ---------------------------------------------------------
     value = st.slider(
         "Malte",
         0, 10,
@@ -923,17 +904,13 @@ if step == "Aroma":
         1,
         key="aroma_main_malt",
         on_change=mark_main_evaluated,
-        args=("Aroma — Malte",)
+        args=("Aroma — Malte",),
     )
     st.session_state.aroma_main["Malte"] = value
     st.caption(f"**{value}/10 — {label_intensity(value)}**")
-    render_aroma_nuance_bar(aroma_groups["Malte"])
+    render_aroma_nuance_box(aroma_groups["Malte"])
 
-    st.markdown("<div style='height: 18px'></div>", unsafe_allow_html=True)
-
-    # ---------------------------------------------------------
     # FERMENTAÇÃO
-    # ---------------------------------------------------------
     value = st.slider(
         "Fermentação",
         0, 10,
@@ -941,12 +918,11 @@ if step == "Aroma":
         1,
         key="aroma_main_fermentation",
         on_change=mark_main_evaluated,
-        args=("Aroma — Fermentação",)
+        args=("Aroma — Fermentação",),
     )
     st.session_state.aroma_main["Fermentação"] = value
     st.caption(f"**{value}/10 — {label_intensity(value)}**")
-    render_aroma_nuance_bar(aroma_groups["Fermentação"])
-
+    render_aroma_nuance_box(aroma_groups["Fermentação"])
 
 # -----------------------------
 # APARÊNCIA
