@@ -302,6 +302,18 @@ except Exception as e:
 
 
 # =========================================================
+# RESET DA AVALIAÇÃO
+# =========================================================
+def reset_evaluation():
+    """Zera todos os controles sensoriais sem alterar o estilo selecionado."""
+    keep = {"style_selector"}
+    for key in list(st.session_state.keys()):
+        if key in keep or str(key).startswith("btn_"):
+            continue
+        del st.session_state[key]
+
+
+# =========================================================
 # SIDEBAR
 # =========================================================
 with st.sidebar:
@@ -327,6 +339,14 @@ with st.sidebar:
     )
 
     selected_style_code = selected_style.split(" — ", 1)[0].strip()
+
+    st.button(
+        "🧹 Zerar todos os parâmetros",
+        use_container_width=True,
+        on_click=reset_evaluation,
+        key="btn_zerar_avaliacao",
+        help="Zera todos os parâmetros sensoriais e mantém o estilo selecionado.",
+    )
 
     st.divider()
 
