@@ -52,7 +52,7 @@ def load_sheet(path, sheet_name):
 # CONFIGURAÇÃO SENSORIAL
 # =========================================================
 INTENSITIES = {
-    0: "Nenhum",
+    0: "Ausente",
     1: "Muito baixo",
     2: "Baixo",
     3: "Médio-baixo",
@@ -63,7 +63,7 @@ INTENSITIES = {
 }
 
 INTENSITY_TO_CODE = {
-    "Nenhum": "NONE",
+    "Ausente": "AUSENTE",
     "Muito baixo": "VERY_LOW",
     "Baixo": "LOW",
     "Médio-baixo": "MEDIUM_LOW",
