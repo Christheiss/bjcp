@@ -744,6 +744,28 @@ def feedback_for_rule(rule, observation):
             )
 
     # -------------------------
+    # PROHIBITED
+    # -------------------------
+    if rule_type == "PROHIBITED":
+        present = observed_value.lower() == "presente"
+
+        if present:
+            return (
+                "PROIBIDO",
+                "Presente",
+                "Ausente",
+                f"{parameter}: esta característica não é permitida para o estilo."
+            )
+
+        # PROHIBITED ausente não precisa aparecer no relatório.
+        return (
+            "IGNORAR",
+            "Ausente",
+            "Ausente",
+            f"{parameter}: ausente, portanto sem desvio."
+        )
+
+    # -------------------------
     # CHECKBOX
     # -------------------------
     if measurement == "CHECKBOX":
@@ -887,7 +909,10 @@ def render_feedback(results):
         warning_count = sum(
             x[0] in ("ABAIXO", "ACIMA", "DESVIO") for x in items
         )
-        error_count = sum(x[0] == "ERRO" for x in items)
+        error_count = sum(
+            x[0] in ("ERRO", "PROIBIDO")
+            for x in items
+        )
 
         summary = []
         if ok_count:
@@ -913,6 +938,10 @@ def render_feedback(results):
                 st.warning(text + f"⚠️ {message}")
             elif status == "ERRO":
                 st.error(text + f"✗ {message}")
+            elif status == "PROIBIDO":
+                st.error(text + f"⛔ {message}")
+            elif status == "IGNORAR":
+                continue
             else:
                 st.info(text + message)
 
@@ -972,7 +1001,10 @@ with tab_resultados:
             for rule in rule_records:
                 rule_type = str(rule.get("Regra") or "").upper()
 
-                if rule_type not in ("REQUIRED", "OPTIONAL"):
+                # REQUIRED sempre é relevante.
+                # OPTIONAL só é relevante quando foi percebido.
+                # PROHIBITED só é relevante quando foi percebido.
+                if rule_type not in ("REQUIRED", "OPTIONAL", "PROHIBITED"):
                     continue
 
                 key = (
@@ -985,6 +1017,24 @@ with tab_resultados:
                 # Evita mostrar parâmetros derivados como se fossem regras normais.
                 if str(rule.get("measurement_type") or "").upper() == "DERIVED":
                     continue
+
+                # OPTIONAL: só aparece se foi percebido.
+                if rule_type == "OPTIONAL":
+                    if observation is None:
+                        continue
+
+                    observed_value = str(observation.get("Valor") or "").lower()
+                    if observed_value != "presente":
+                        continue
+
+                # PROHIBITED: só aparece se foi percebido.
+                if rule_type == "PROHIBITED":
+                    if observation is None:
+                        continue
+
+                    observed_value = str(observation.get("Valor") or "").lower()
+                    if observed_value != "presente":
+                        continue
 
                 result = feedback_for_rule(rule, observation)
 
