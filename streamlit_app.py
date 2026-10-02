@@ -1,53 +1,248 @@
-from openpyxl import load_workbook
+import streamlit as st
+from pathlib import Path
+import pandas as pd
+import importlib.util
 
-WEIGHTS = {"REQUIRED": 5, "OPTIONAL": 1, "UNEXPECTED": 3, "PROHIBITED": 10}
-LEVELS = {"NONE":0, "VERY_LOW":1, "LOW":2, "MEDIUM_LOW":3,
-          "MEDIUM":4, "MEDIUM_HIGH":5, "HIGH":6, "VERY_HIGH":7}
+st.set_page_config(
+    page_title="BJCP Style Matcher",
+    page_icon="🍺",
+    layout="wide",
+)
 
-def load_rules(xlsx_path, sheet_name="Regras_1A_v2"):
-    wb = load_workbook(xlsx_path, data_only=True)
-    ws = wb[sheet_name]
-    headers = [c.value for c in ws[1]]
-    return [dict(zip(headers, row)) for row in ws.iter_rows(min_row=2, values_only=True)]
+BASE = Path(__file__).resolve().parent
 
-def range_match(observed, minimum, maximum):
-    if observed not in LEVELS or minimum not in LEVELS or maximum not in LEVELS:
-        return False
-    return LEVELS[minimum] <= LEVELS[observed] <= LEVELS[maximum]
+# Arquivos esperados no mesmo diretório do app
+MOTOR_FILE = BASE / "motor_matching_v3_generico.py"
+DB_CANDIDATES = [
+    BASE / "bjcp_database_v29_motor_generico.xlsx",
+    BASE / "bjcp_database_v26_motor_python_1A.xlsx",
+    BASE / "bjcp_database_v25_calculo_matching_1A.xlsx",
+]
 
-def checkbox_match(observed):
-    return str(observed).strip().lower() == "presente"
+def load_motor():
+    if not MOTOR_FILE.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("bjcp_motor", MOTOR_FILE)
+    motor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(motor)
+    return motor
 
-def calculate(observations, rules):
-    by_key = {(r["Seção"], r["Parâmetro"]): r for r in observations}
-    required = [r for r in rules if r["Regra"] == "REQUIRED"]
-    points = 0
-    maximum = len(required) * WEIGHTS["REQUIRED"]
-    details = []
+def find_database():
+    for path in DB_CANDIDATES:
+        if path.exists():
+            return path
+    return None
 
-    for rule in required:
-        obs = by_key.get((rule["Seção"], rule["Parâmetro"]))
-        matched = False
-        if obs:
-            if rule["measurement_type"] == "CHECKBOX":
-                matched = checkbox_match(obs["Valor"])
-            else:
-                matched = range_match(obs["Intensidade"], rule["Min_Linguístico"], rule["Max_Linguístico"])
-        points += WEIGHTS["REQUIRED"] if matched else 0
-        details.append((rule["Parâmetro"], "REQUIRED", matched))
+@st.cache_data
+def load_sheet(path, sheet_name):
+    return pd.read_excel(path, sheet_name=sheet_name)
 
-    unexpected = 0
-    prohibited = 0
-    for obs in observations:
-        key = (obs["Seção"], obs["Parâmetro"])
-        matching_rules = [r for r in rules if (r["Seção"], r["Parâmetro"]) == key]
-        if not matching_rules and str(obs["Valor"]).lower() == "presente":
-            unexpected += 1
-            details.append((obs["Parâmetro"], "UNEXPECTED", False))
+st.title("🍺 BJCP Style Matcher")
+st.caption("Protótipo de identificação de estilo baseado em regras estruturadas do BJCP.")
 
-    penalty = unexpected * WEIGHTS["UNEXPECTED"] + prohibited * WEIGHTS["PROHIBITED"]
-    score = 0 if maximum == 0 else max(0, min(100, (points - penalty) / maximum * 100))
-    return round(score, 2), details
+db = find_database()
+motor = load_motor()
 
-if __name__ == "__main__":
-    print("Motor genérico carregado. Use load_rules() + calculate() para qualquer estilo que possua regras estruturadas.")
+if db is None:
+    st.error(
+        "Banco Excel não encontrado. Coloque o arquivo do banco na mesma pasta "
+        "do streamlit_app.py."
+    )
+    st.stop()
+
+if motor is None:
+    st.error(
+        "motor_matching_v3_generico.py não encontrado. "
+        "Coloque o motor na mesma pasta do streamlit_app.py."
+    )
+    st.stop()
+
+st.success(f"Banco carregado: {db.name}")
+
+# ---------------------------------------------------------
+# Carregamento das regras
+# ---------------------------------------------------------
+try:
+    rules = load_sheet(db, "Regras_1A_v2")
+except Exception as e:
+    st.error(f"Não foi possível carregar a aba Regras_1A_v2: {e}")
+    st.stop()
+
+# ---------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------
+with st.sidebar:
+    st.header("Configuração")
+
+    style = st.selectbox(
+        "Estilo para testar",
+        ["1A — American Light Lager"],
+    )
+
+    st.divider()
+    st.write("**Arquivos**")
+    st.code(db.name)
+    st.code("motor_matching_v3_generico.py")
+
+# ---------------------------------------------------------
+# Entrada sensorial
+# ---------------------------------------------------------
+st.header("1. Avaliação sensorial")
+
+tab_aroma, tab_aparencia, tab_sabor, tab_boca = st.tabs(
+    ["🌸 Aroma", "👁️ Aparência", "👅 Sabor", "💧 Sensação na boca"]
+)
+
+observations = []
+
+def add_range_observation(section, parameter, label, levels):
+    value = st.selectbox(label, levels, key=f"{section}_{parameter}")
+    observations.append({
+        "Seção": section,
+        "Parâmetro": parameter,
+        "Tipo": "RANGE",
+        "Valor": value,
+        "Intensidade": value,
+    })
+
+def add_checkbox_observation(section, parameter, label):
+    present = st.checkbox(label, key=f"{section}_{parameter}")
+    observations.append({
+        "Seção": section,
+        "Parâmetro": parameter,
+        "Tipo": "CHECKBOX",
+        "Valor": "presente" if present else "ausente",
+        "Intensidade": "",
+    })
+
+with tab_aroma:
+    st.subheader("Aroma")
+
+    add_range_observation(
+        "Aroma", "Malte", "Intensidade de malte",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+    add_checkbox_observation("Aroma", "Floral", "Floral")
+    add_checkbox_observation("Aroma", "Herbal", "Herbal")
+    add_checkbox_observation("Aroma", "Especiaria", "Especiaria")
+
+with tab_aparencia:
+    st.subheader("Aparência")
+
+    cor = st.selectbox(
+        "Cor da cerveja",
+        ["Palha", "Amarelo", "Dourado", "Âmbar", "Cobre", "Marrom", "Preto"],
+    )
+    observations.append({
+        "Seção": "Aparência",
+        "Parâmetro": "Cor da cerveja",
+        "Tipo": "RANGE",
+        "Valor": cor,
+        "Intensidade": "LOW" if cor in ["Palha", "Amarelo"] else "MEDIUM",
+    })
+
+    colarinho = st.selectbox(
+        "Cor do colarinho",
+        ["Branco", "Marfim", "Creme", "Bege", "Moreno", "Marrom"],
+    )
+    observations.append({
+        "Seção": "Aparência",
+        "Parâmetro": "Cor do colarinho",
+        "Tipo": "RANGE",
+        "Valor": colarinho,
+        "Intensidade": "",
+    })
+
+    add_range_observation(
+        "Aparência", "Limpidez", "Limpidez",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+    add_range_observation(
+        "Aparência", "Retenção do colarinho", "Retenção do colarinho",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+with tab_sabor:
+    st.subheader("Sabor")
+
+    add_range_observation(
+        "Sabor", "Malte", "Intensidade de malte",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+    add_range_observation(
+        "Sabor", "Amargor", "Amargor",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+    add_checkbox_observation("Sabor", "Cítrico", "Cítrico")
+    add_checkbox_observation("Sabor", "Floral", "Floral")
+    add_checkbox_observation("Sabor", "Herbal", "Herbal")
+    add_checkbox_observation("Sabor", "Especiaria", "Especiaria")
+
+with tab_boca:
+    st.subheader("Sensação na boca")
+
+    add_range_observation(
+        "Sensação na Boca", "Corpo", "Corpo",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+    add_range_observation(
+        "Sensação na Boca", "Carbonatação", "Carbonatação",
+        ["NONE", "VERY_LOW", "LOW", "MEDIUM_LOW", "MEDIUM", "MEDIUM_HIGH", "HIGH", "VERY_HIGH"]
+    )
+
+# ---------------------------------------------------------
+# Resultado
+# ---------------------------------------------------------
+st.divider()
+st.header("2. Resultado")
+
+if st.button("🍺 Calcular compatibilidade", type="primary", use_container_width=True):
+    try:
+        score, details = motor.calculate(observations, rules)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Compatibilidade", f"{score:.2f}%")
+        col2.metric("Estilo", "1A")
+        col3.metric("Regras avaliadas", len(details))
+
+        if score >= 80:
+            st.success("Alta compatibilidade operacional.")
+        elif score >= 60:
+            st.warning("Compatibilidade intermediária.")
+        else:
+            st.error("Baixa compatibilidade operacional.")
+
+        st.subheader("Detalhamento")
+
+        detail_df = pd.DataFrame(
+            details,
+            columns=["Parâmetro", "Regra", "Compatível"]
+        )
+
+        st.dataframe(
+            detail_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        with st.expander("Ver observações enviadas"):
+            st.dataframe(
+                pd.DataFrame(observations),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    except Exception as e:
+        st.error(f"Erro no cálculo: {e}")
+        st.exception(e)
+
+st.divider()
+st.caption(
+    "Protótipo em desenvolvimento. Pesos, escalas operacionais e fórmula de "
+    "compatibilidade são regras do aplicativo, não uma pontuação oficial do BJCP."
+)
