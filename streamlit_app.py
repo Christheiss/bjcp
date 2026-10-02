@@ -849,93 +849,72 @@ def feedback_for_rule(rule, observation):
 def render_feedback(results):
     st.subheader("🔎 Feedback da avaliação")
 
+    categories = [
+        ("Aroma", "🌸"),
+        ("Aparência", "👁️"),
+        ("Sabor", "👅"),
+        ("Sensação na Boca", "💧"),
+        ("Falhas", "⚠️"),
+    ]
+
+    grouped = {name: [] for name, _ in categories}
+
     for item in results:
-        status, parameter, observed, expected, message = item
+        section, status, parameter, observed, expected, message = item
+        section = str(section)
 
-        if status == "OK":
-            st.success(
+        if section == "Sensação na boca":
+            section = "Sensação na Boca"
+        elif section.lower() in ("falha", "falhas", "off-flavors"):
+            section = "Falhas"
+
+        if section not in grouped:
+            section = "Aroma"
+
+        grouped[section].append(
+            (status, parameter, observed, expected, message)
+        )
+
+    for category, icon in categories:
+        items = grouped[category]
+        if not items:
+            continue
+
+        st.divider()
+        st.markdown(f"### {icon} {category}")
+
+        ok_count = sum(x[0] == "OK" for x in items)
+        warning_count = sum(
+            x[0] in ("ABAIXO", "ACIMA", "DESVIO") for x in items
+        )
+        error_count = sum(x[0] == "ERRO" for x in items)
+
+        summary = []
+        if ok_count:
+            summary.append(f"✅ {ok_count} compatível(eis)")
+        if warning_count:
+            summary.append(f"⚠️ {warning_count} desvio(s)")
+        if error_count:
+            summary.append(f"❌ {error_count} problema(s)")
+
+        if summary:
+            st.caption(" · ".join(summary))
+
+        for status, parameter, observed, expected, message in items:
+            text = (
                 f"**{parameter}**  \n"
                 f"Você marcou: **{observed}**  \n"
                 f"Estilo pede: **{expected}**  \n"
-                f"✓ {message}"
-            )
-        elif status in ("ABAIXO", "ACIMA", "DESVIO"):
-            st.warning(
-                f"**{parameter}**  \n"
-                f"Você marcou: **{observed}**  \n"
-                f"Estilo pede: **{expected}**  \n"
-                f"⚠️ {message}"
-            )
-        elif status == "ERRO":
-            st.error(
-                f"**{parameter}**  \n"
-                f"Você marcou: **{observed}**  \n"
-                f"Estilo pede: **{expected}**  \n"
-                f"✗ {message}"
-            )
-        else:
-            st.info(
-                f"**{parameter}** — {message}  \n"
-                f"Você marcou: **{observed}** | Estilo: **{expected}**"
             )
 
-
-# =========================================================
-# FALHAS / OFF-FLAVORS
-# =========================================================
-with tab_falhas:
-
-    st.subheader("Falhas / Off-flavors")
-
-    st.caption(
-        "Marque somente as falhas que foram percebidas na amostra."
-    )
-
-    add_checkbox_group(
-        "Falhas",
-        "Aroma",
-        [
-            "Acetaldeído",
-            "Atingido por Luz",
-            "Azedo/Ácido",
-            "Alcoólico/Quente",
-            "Adstringente",
-            "Diacetil",
-            "DMS",
-            "Esterificado",
-            "Gramíneo",
-        ],
-    )
-
-    st.divider()
-
-    add_checkbox_group(
-        "Falhas",
-        "Sabor",
-        [
-            "Medicinal",
-            "Metálico",
-            "Mofo",
-            "Oxidado",
-            "Plástico",
-            "Solvente/Fusel",
-            "Vinagre",
-        ],
-    )
-
-    st.divider()
-
-    add_checkbox_group(
-        "Falhas",
-        "Boca / Outros",
-        [
-            "Fumaça",
-            "Condimento",
-            "Enxofre",
-            "Vegetal",
-            "Levedura",
-        ],
-    )
+            if status == "OK":
+                st.success(text + f"✓ {message}")
+            elif status in ("ABAIXO", "ACIMA", "DESVIO"):
+                st.warning(text + f"⚠️ {message}")
+            elif status == "ERRO":
+                st.error(text + f"✗ {message}")
+            else:
+                st.info(text + message)
 
 
 # =========================================================
@@ -1010,6 +989,7 @@ with tab_resultados:
                 result = feedback_for_rule(rule, observation)
 
                 feedback_results.append((
+                    str(rule.get("Seção") or ""),
                     result[0],
                     str(rule.get("Parâmetro") or ""),
                     result[1],
@@ -1040,6 +1020,7 @@ with tab_resultados:
                 ):
                     parameter = str(obs.get("Parâmetro") or "")
                     feedback_results.append((
+                        str(obs.get("Seção") or ""),
                         "DESVIO",
                         parameter,
                         "Presente",
