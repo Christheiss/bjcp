@@ -65,6 +65,7 @@ def rank_by_perfil_sensorail(observations, perfil_df):
         "Sabor": "Flavor",
         "Sensação na boca": "Mouthfeel",
         "Aparência": "Appearance",
+        "Final": "Final",
     }
 
     obs = []
