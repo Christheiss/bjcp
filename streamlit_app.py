@@ -331,46 +331,83 @@ with tab_aparencia:
 
     st.markdown("### Cor")
 
-    st.markdown("**Cor da cerveja**")
     beer_colors = [
-        "Palha",
-        "Amarelo",
-        "Ouro",
-        "Âmbar",
-        "Cobre",
-        "Marrom",
-        "Preto",
+        ("Palha", "#F7E9A8"),
+        ("Amarelo", "#F2D34F"),
+        ("Ouro", "#D9A52E"),
+        ("Âmbar", "#B86A1B"),
+        ("Cobre", "#9A4B22"),
+        ("Marrom", "#603B28"),
+        ("Preto", "#17130F"),
     ]
 
-    beer_color_cols = st.columns(7)
-    for i, color in enumerate(beer_colors):
-        with beer_color_cols[i]:
-            add_checkbox(
-                "Aparência",
-                f"Cor_{color}",
-                color,
-                group="Cor da cerveja",
-            )
-
-    st.markdown("**Cor do colarinho**")
     head_colors = [
-        "Branco",
-        "Marfim",
-        "Creme",
-        "Bege",
-        "Moreno",
-        "Marrom",
+        ("Branco", "#FFFFFF"),
+        ("Marfim", "#FFF3D1"),
+        ("Creme", "#F2D5A4"),
+        ("Bege", "#D8B98A"),
+        ("Moreno", "#8B684B"),
+        ("Marrom", "#5A3826"),
     ]
 
-    head_cols = st.columns(6)
-    for i, color in enumerate(head_colors):
-        with head_cols[i]:
-            add_checkbox(
-                "Aparência",
-                f"Colarinho_{color}",
-                color,
-                group="Cor do colarinho",
-            )
+    def add_color_slider(section, parameter, label, palette):
+        names = [item[0] for item in palette]
+
+        index = st.slider(
+            label,
+            min_value=0,
+            max_value=len(names) - 1,
+            value=0,
+            step=1,
+            key=f"color_{section}_{parameter}",
+        )
+
+        name, hex_color = palette[index]
+
+        st.markdown(
+            f'''
+            <div style="
+                display:flex;
+                align-items:center;
+                gap:14px;
+                margin-top:-4px;
+                margin-bottom:14px;
+            ">
+                <div style="
+                    width:58px;
+                    height:32px;
+                    border-radius:6px;
+                    background:{hex_color};
+                    border:1px solid rgba(255,255,255,.35);
+                    box-shadow:0 1px 4px rgba(0,0,0,.25);
+                "></div>
+                <div style="font-size:1.05rem;font-weight:600;">{name}</div>
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+
+        observations.append({
+            "Seção": section,
+            "Parâmetro": parameter,
+            "Tipo": "RANGE",
+            "Valor": name,
+            "Intensidade": name,
+        })
+
+    add_color_slider(
+        "Aparência",
+        "Cor da cerveja",
+        "Cor da cerveja",
+        beer_colors,
+    )
+
+    add_color_slider(
+        "Aparência",
+        "Cor do colarinho",
+        "Cor do colarinho",
+        head_colors,
+    )
 
     st.markdown("**Outros aspectos**")
     add_checkbox_group(
