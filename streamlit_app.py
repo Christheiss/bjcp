@@ -1001,7 +1001,7 @@ def render_feedback(results):
         if ok_count:
             summary.append(f"✅ {ok_count} compatível(eis)")
         if warning_count:
-            summary.append(f"⚠️ {warning_count} desvio(s)")
+            summary.append(f"❌ {warning_count} desvio(s)")
         if error_count:
             summary.append(f"❌ {error_count} problema(s)")
 
@@ -1018,7 +1018,7 @@ def render_feedback(results):
             if status == "OK":
                 st.success(text + f"✓ {message}")
             elif status in ("ABAIXO", "ACIMA", "DESVIO"):
-                st.warning(text + f"⚠️ {message}")
+                st.error(text + f"✗ {message}")
             elif status == "ERRO":
                 st.error(text + f"✗ {message}")
             elif status == "PROIBIDO":
